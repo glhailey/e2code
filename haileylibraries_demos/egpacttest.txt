@@ -1,0 +1,95 @@
+@name egpact test
+@inputs EGP:wirelink
+
+if(first()){
+    #include "haileylibraries/egpact"
+
+    function table wirelink:egpact_Main(Self:table, Props:table) {
+        local Alloc = This:egpAlloc(Self,1)
+        This:egpBox(Alloc:x(),vec2(512/2),vec2(512-50))
+        This:egpColor(Alloc:x(),vec(20))
+
+        Self[1,table] = This:egpact_Button(Self[1,table]
+            , table(
+                "position"=vec2(512/2),
+                "size"=vec2(200,60),
+                "border" = 2,
+                "text" = "hello"))
+
+        This:egpact_addHook(Self[1,table],"use","egphook_ButtonPrint",table())
+        This:egpact_addHook(Self[1,table],"hover","egphook_ButtonHover",table("scale" = 1.1))
+
+        Self[2,table] = This:egpact_Button(Self[2,table]
+            , table(
+                "position"=vec2(512/2,512/2+80),
+                "size"=vec2(200,60),
+                "border" = 2,
+                "color" = hsv2rgb(255,0.7,1),
+                "text" = "Bruh"))
+
+        This:egpact_addHook(Self[2,table],"hover","egphook_ButtonHover",table("scale" = 1.1))
+
+
+        # Popup Model and sub components:
+        Self[5,table] = This:egpact_Model(Self[5,table]
+            , table(
+                "position"=vec2(512/2,512/2),
+                "size"=vec2(400,200),
+                "border" = 2,
+                "text" = "Haheho"
+                ))
+
+        Self["button_child_a",table] = This:egpact_Button(Self["button_child_a",table]
+            , table(
+                "position"=vec2(0,-60),
+                "size"=vec2(150,50),
+                "border" = 2,
+                "color" = hsv2rgb(25,0.7,1),
+                "text" = "Button A"))
+
+        Self["button_child_b",table] = This:egpact_Button(Self["button_child_b",table]
+            , table(
+                "position"=vec2(0,0),
+                "size"=vec2(150,50),
+                "border" = 2,
+                "color" = hsv2rgb(25,0.7,1),
+                "text" = "Button B"))
+
+        This:egpact_addHook(Self["button_child_a",table],"hover","egphook_ButtonHover",table("scale" = 1.1))
+        This:egpact_addHook(Self["button_child_b",table],"hover","egphook_ButtonHover",table("scale" = 1.1))
+
+        This:egpact_addHook(Self["button_child_a",table],"use","egphook_ButtonPrint",table())
+        This:egpact_addHook(Self["button_child_b",table],"use","egphook_ButtonPrint",table())
+
+        This:egpact_Model_setChild(Self[5,table], 1, Self["button_child_a",table])
+        This:egpact_Model_setChild(Self[5,table], 2, Self["button_child_b",table])
+        # End Model
+
+        Self[3,table] = This:egpact_Cursor(Self[3,table]
+            , table())
+
+        return Self
+    }
+
+    function wirelink:egphook_ButtonPrint(Component:table,Event:table,Props:table){
+        print("bru",curtime())
+    }
+
+    if(EGP){
+        print("F:",EGPACT_EGPALLOCS_FREE)
+        EGP:egpClear()
+
+        EGP:egpact_Main(table(),table())
+
+        print("F:",EGPACT_EGPALLOCS_FREE)
+        printTable(EGPACT_EGPALLOCS)
+
+        runOnKeys(owner(),1)
+
+        foreach(K,P:entity = players()){
+            runOnEgpactHooks(P,EGP,1)
+        }
+    }
+}
+
+handleEgpactHooks()

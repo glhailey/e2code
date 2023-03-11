@@ -1,0 +1,58 @@
+@name haileylibraries/haileylibrarytestscripts/delaydotest
+
+if(first()) {
+    # You probably aren't familiar with this, this is how you add other e2 files to your e2s
+    #include "haileylibraries/delaydo"
+
+    #[
+        delayDo is a library I created for handling asynchronous events.
+        It is built to run a function at a delay
+    ]#
+
+
+    # Functions called by delaydo MUST accept a single table as input
+    function void printDelay_delay(Input:table){
+
+        # It gets the string from wherever it is called
+        print(Input["string",string])
+    }
+
+    # It's not strictly necessary to wrap delaydo calls behind a handler function, but sometimes it makes code cleaner
+    function void printDelay(String:string, Delay){
+        print("will print string in ", Delay, " millis")
+
+        # This is how delaydo works, you pass the function to run, its parameters, and how long to wait
+        # You pass arguments to the delayed function in the form of a table
+        delayDo("printDelay_delay",table("string"=String),Delay)
+    }
+
+    function delayDoLoop_delay(Input:table) {
+
+        print(Input["i",number])
+        Input["i",number] = Input["i",number] - 1
+
+        # This condition is what makes the loop stop. Now it only runs until it reaches 0
+        if(Input["i",number] >= 0){
+            # You can call a function with its own input, this helps link calls together.
+            delayDo("delayDoLoop_delay",Input,600)
+        }
+    }
+
+    function delayDoLoop(Number, Delay) {
+        delayDo("delayDoLoop_delay",table("i"=Number),Delay)
+    }
+
+
+
+    printDelay("short delay",1000)
+    printDelay("longer delay",3000)
+    printDelay("medium",2000)
+    # Call order is not important, even adding one before all the others is fine
+    printDelay("shortest",100)
+
+    # Run this after the rest
+    delayDoLoop(5,4000)
+}
+# My delaydo implementation uses timers behind the scenes
+# This function must be run every time the delay is up. This is where the code is executed
+handleDelayDo()

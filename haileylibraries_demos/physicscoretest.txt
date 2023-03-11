@@ -1,0 +1,37 @@
+# TEST PROGRAM.
+# Wire to two 1x1 plates preferably
+
+@name PHYSICSCORE TEST
+@inputs PROP1:entity PROP2:entity
+@persist TABLE1:table TABLE2:table I
+
+if(first()){
+    # include the library
+    #include "haileylibraries/physicscore"
+
+    # Create two physicsobjects. These represent a moveable entity
+
+    TABLE1 = newPhysicsObject(PROP1,entity():pos()+vec(0,50,5),entity():angles())
+    TABLE2 = newPhysicsObject(PROP2,vec(GMOD_UNIT,0,10))
+
+    # Parent one to the other. The pos of the child becomes relative to its parent
+    TABLE2:parentTo(TABLE1)
+
+    addPhysicsObject(TABLE1)
+    addPhysicsObject(TABLE2)
+
+    runOnTick(1)# it must run on ticks to apply the force
+}
+elseif(tickClk()){
+    # Change angle every tick to demonstrate parenting.
+    I++
+    TABLE1:setAng(ang(0,I,0))
+
+    # Follow the position of the chip
+    TABLE1:setPos(entity():pos()+vec(0,50,30+25*sin(curtime()*50)))
+
+    # This function is where the force is applied
+    handlePhysicsObjects()
+}
+
+

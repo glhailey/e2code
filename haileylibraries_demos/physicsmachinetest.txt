@@ -1,0 +1,43 @@
+@name TEST
+@inputs ResourceBox:entity ResourcePlate:entity ResourceUsePlate:entity
+@inputs HopperBase:entity Hopper0:entity Hopper1:entity HopperW:entity
+@persist RESOURCEBOX:table
+
+if(first()){
+    # This one is not as refined as the others.
+
+    #include "haileylibraries/physicsmachine"
+    RESOURCEBOX = resourceCollector_new(ResourceBox, ResourcePlate, ResourceUsePlate, entity():toWorld(vec(50,0,10)),ang())
+    addPhysicsObject(RESOURCEBOX)
+
+    VARHOPPER = varHopper_new(HopperBase,Hopper0,Hopper1,HopperW, vec2(36), entity():toWorld(vec(0,-50,40)),ang())
+    addPhysicsObject(VARHOPPER)
+
+    P = array(
+        entity():toWorld(vec(300,0,40)),
+        entity():toWorld(vec(-300,0,40)),
+        entity():toWorld(vec(50,0,10))
+
+    )
+    #RESOURCEBOX:moveAlongPath(P,0,1000,"testA",table())
+
+    function testA(Input:table) {
+        local T = RESOURCEBOX:resourceCollector_getPlayerPos()
+        if(!T["found",number]) {
+            return
+        }
+        RESOURCEBOX:moveAlongPath(array(T["position",vector]+vec(0,0,75),T["position",vector]),0,100,"",table())
+        RESOURCEBOX:setAng(T["angle",angle])
+    }
+    delayDo("testA",table(),1000)
+
+
+    runOnTick(1)
+}
+elseif(tickClk()){
+    handlePhysicsObjects()
+}else{
+    handleDelayDo()
+}
+
+

@@ -1,0 +1,460 @@
+@name haileylibraries/egpact
+
+@persist EGPACT_EGPALLOCS:table EGPACT_EGPALLOCS_GLOBAL:table EGPACT_EGPALLOCS_FREE:table EGPACT_HOOKS:table
+@persist KEYS_PRESSED:table EGPACT_HOOK_PLAYERS:table
+#[
+ # Save as haileylibraries/egpact
+ # Shoot me
+]#
+
+if(first()|duped()|dupefinished()){
+    #EGPACT_EGPALLOCS_FREE = array(vec2(1,300))
+
+    function vector2 egpAlloc_create(Free:array, Size){
+        foreach(K, X:vector2 = Free){
+            if(X:y()-X:x() > Size) {
+                local Alloc = vec2(X:x(),X:x()+Size-1)
+                local NoAlloc = vec2(X:x()+Size,X:y())
+                Free[K,vector2] = NoAlloc
+
+                return Alloc
+            }
+        }
+        return vec2()
+    }
+
+    function vector2 egpAllocGet(Component:table){
+        return EGPACT_EGPALLOCS_GLOBAL[Component:id(),vector2]
+    }
+
+    function egpAlloc_free(Free:array, Alloc:vector2){
+
+        foreach(K, X:vector2 = Free){
+            if(X:y() >= Alloc:y()) {
+                local Start = X:x()
+                local End = Alloc:y()
+
+                if(Alloc:y()+1 >= X:x()){
+
+                    local Prev = Free[K-1,vector2]
+                    if(Prev & (Prev:y()+1 >= Alloc:x())){
+                        Free[K,vector2] = vec2(Prev:x(),X:y())
+                        Free:removeVector2(K-1)
+                    }else {
+                        Free[K,vector2] = vec2(Alloc:x(),X:y())
+                    }
+                } else {
+
+                    local Prev = Free[K-1,vector2]
+                    if(Prev & (Prev:y()+1 >= Alloc:x())){
+                        Free[K-1,vector2] = vec2(Prev:x(),Alloc:y())
+                    }else {
+                        Free:insertVector2(K,Alloc)
+                    }
+                }
+
+            }
+        }
+    }
+
+
+    function vector2 wirelink:egpAlloc(Component:table, Size) {
+        local ID = This:entity():creationID()
+
+        local Allocs = EGPACT_EGPALLOCS[ID,table]
+
+        if(!EGPACT_EGPALLOCS:exists(ID)){
+            EGPACT_EGPALLOCS[ID,table] = Allocs
+            EGPACT_EGPALLOCS_FREE[ID,array] = array(vec2(1,300))
+        }
+
+        if(Allocs:exists(Component:id())){
+            return Allocs[Component:id(),vector2]
+        } elseif(Size) {
+            local Alloc = egpAlloc_create(EGPACT_EGPALLOCS_FREE[ID,array], Size)
+
+            EGPACT_EGPALLOCS_GLOBAL[Component:id(),vector2] = Alloc
+            Allocs[Component:id(),vector2] = Alloc
+            return Alloc
+        }
+        return vec2()
+    }
+
+    function number wirelink:egpDealloc(Component:table) {
+        local ID = This:entity():creationID()
+
+        local Alloc = egpAllocGet(Component)
+        if(Alloc){
+            egpAlloc_free(EGPACT_EGPALLOCS_FREE[ID,array],Alloc)
+        }
+
+        return 0
+    }
+
+    # Recursively deletes egp component and frees indices
+    function wirelink:egpact_removeComponent(Component:table){
+
+        local Free =  EGPACT_EGPALLOCS_FREE[This:entity():creationID(),array]
+
+        local IterStack = table()
+        local Popped = Component
+        local Count = 1
+
+        while(Count){
+            Count = Count + Popped:ncount() - 1
+            foreach(K:number, C:table = Popped){
+                IterStack:pushTable(C)
+            }
+
+            local Alloc = This:egpAlloc(Popped,0)
+            for(I=Alloc:x(),Alloc:y()){
+                This:egpRemove(I)
+            }
+            egpAlloc_free(Free,Alloc)
+
+            Popped = IterStack:popTable()
+        }
+    }
+
+    # Recursively parents the unparented objects in the components to a single index
+    function wirelink:egpact_parentComponent(Component:table, EGPObject){
+        local IterStack = table()
+        local Popped = Component
+        local Count = 1
+        while(Count){
+            Count = Count + Popped:ncount() - 1
+            foreach(K:number, C:table = Popped){
+                IterStack:pushTable(C)
+            }
+
+            local Alloc = This:egpAlloc(Popped,0)
+            for(I=Alloc:x(),Alloc:y()){
+                if(!This:egpParent(I)){
+                    This:egpParent(I,EGPObject)
+                }
+            }
+
+            Popped = IterStack:popTable()
+        }
+    }
+
+
+    function void wirelink:egpact_addHook(Component:table, Hook:string, HookFunction:string, Props:table){
+        local ID = This:entity():creationID()
+        local HookTable = EGPACT_HOOKS[ID,table]
+        EGPACT_HOOKS[ID,table] = HookTable
+
+        #print("hook: ",EGPACT_HOOKS:keys()," e: ",+This:entity())
+
+        if(!HookTable:exists(Hook)){
+            HookTable[Hook,table] = table()
+        }
+        HookTable[Hook,table]:insertTable(1,table(
+            "component"=Component
+            ,"function"=HookFunction
+            ,"props"=Props
+        ))
+    }
+
+
+    function void wirelink:egpact_doHook(Hook:string, Event:table){
+
+        local Hooked = EGPACT_HOOKS[This:entity():creationID(),table][Hook,table]
+        switch(Hook) {
+            case "use",
+                local Target = Event["target",vector2]
+                foreach(K:number, H:table = Hooked){
+                    local Component = H["component",table]
+
+                    local TargetFinal = Target
+                    local ComponentId = This:egpAlloc(Component,0):x()
+
+                    local Parent = This:egpParent(ComponentId)
+                    while(Parent){
+                        TargetFinal-=This:egpPos(Parent)
+                        Parent = This:egpParent(Parent)
+                    }
+
+                    if(This:egpObjectContainsPoint(ComponentId,TargetFinal)){
+                        local Func = H["function",string]
+                        if(Func){
+                            H["function",string](This, Component,Event,H["props",table])
+                        }
+
+                        break
+                    }
+                }
+            break
+            case "hover",
+                local Target = Event["target",vector2]
+                foreach(K:number, H:table = Hooked){
+                    local Component = H["component",table]
+                    local Props = H["props",table]
+
+                    local TargetFinal = Target
+                    local ComponentId = egpAllocGet(Component):x()
+                    local Parent = This:egpParent(ComponentId)
+                    while(Parent){
+                        TargetFinal-=This:egpPos(Parent)
+                        Parent = This:egpParent(Parent)
+                    }
+
+
+                    local Hover = This:egpObjectContainsPoint(This:egpAlloc(Component,0):x(),TargetFinal)
+                    local Changed = Props["hover",number] != Hover
+                    Event["hover",number] = Hover
+                    Event["changed",number] = Changed
+
+                    Props["hover",number] = Hover
+
+                    local Func = H["function",string]
+                    if(Func){
+                        H["function",string](This, Component,Event,H["props",table])
+                    }
+                }
+            break
+            case "unhover",
+
+            break
+            default,
+            foreach(K:number, H:table = Hooked){
+                local Func = H["function",string]
+                if(Func){
+                    Func(This,  H["component",table],Event,H["props",table])
+                }
+            }
+
+        }
+    }
+
+
+    function table wirelink:egpact_Cursor(Self:table, Props:table) {
+        local Alloc = This:egpAlloc(Self, 2)
+        local EGPI = Alloc:x()
+
+        local A1 = 45
+        local AO = 15
+        local D1 = 13
+        local Border = 8
+
+        local Offset = vec2(0,2)
+
+        This:egpTriangle(EGPI, vec2(-2,-2)+Offset, vec2(cos(A1+AO),sin(A1+AO))*D1+Offset, vec2(cos(A1-AO),sin(A1-AO))*D1+Offset)
+        This:egpParentToCursor(EGPI)
+        This:egpColor(EGPI,vec(50))
+
+        EGPI++
+        This:egpTriangle(EGPI, vec2(-2,-2), vec2(cos(A1+AO),sin(A1+AO))*D1, vec2(cos(A1-AO),sin(A1-AO))*D1)
+        This:egpParentToCursor(EGPI)
+        This:egpColor(EGPI,vec(255))
+
+        return Self
+    }
+
+     function table wirelink:egpact_CrossButton(Self:table, Props:table) {
+        local Position = Props["position",vector2]
+        local Size = vec2(Props["size",number])
+        local Border = Props["border",number]
+        local Width = Props:exists("width") ? Props["width",number] : 5
+
+        local Alloc = This:egpAlloc(Self, 4)
+        local EGPI = Alloc:x()
+
+        This:egpCircle(EGPI,Position,Size)
+        This:egpColor(EGPI,vec(25,0,0))
+
+        EGPI++
+        This:egpCircle(EGPI,Position,Size-Border*2)
+        This:egpColor(EGPI,vec(200,20,20))
+
+        EGPI++
+        This:egpBox(EGPI,Position,vec2(Props["size",number],Width))
+        This:egpAngle(EGPI,45)
+
+        EGPI++
+        This:egpBox(EGPI,Position,vec2(Props["size",number],Width))
+        This:egpAngle(EGPI,-45)
+
+        return Self
+    }
+
+    # # # # # # # #
+    # Model
+
+
+    function table wirelink:egpact_Model(Self:table, Props:table) {
+        local Position = Props["position",vector2]
+        local Size = Props["size",vector2]
+        local Border = Props["border",number]
+
+        local Alloc = This:egpAlloc(Self, 5)
+        local EGPI = Alloc:x()
+
+        local BarSize = 30
+        local Radius = 10
+
+
+        This:egpRoundedBox(EGPI,Position-vec2(0,BarSize/2),Size+vec2(Border*2,Border*2 + BarSize))
+        This:egpRadius(EGPI,Radius)
+        This:egpColor(EGPI,vec(0))
+
+        EGPI++
+        This:egpRoundedBox(EGPI,Position,Size)
+        This:egpRadius(EGPI,Radius)
+        This:egpColor(EGPI,vec(50))
+
+
+        local BarPosition = Position-vec2(0,(Size:y()+BarSize)/2)
+        EGPI++
+        This:egpRoundedBox(EGPI,BarPosition,vec2(Size:x(),BarSize))
+        This:egpRadius(EGPI,Radius)
+        This:egpColor(EGPI,Props:exists("color") ? Props["color",vector] : vec(25))
+
+        EGPI++
+        This:egpBox(EGPI,BarPosition+vec2(0,Radius+2),vec2(Size:x(),BarSize-Radius))
+        This:egpRadius(EGPI,Radius)
+        This:egpColor(EGPI,Props:exists("color") ? Props["color",vector] : vec(25))
+
+        EGPI++
+        This:egpText(EGPI,Props["text",string],BarPosition-vec2(Size:x()/2-Radius,0))
+        This:egpColor(EGPI,vec())
+        This:egpSize(EGPI,24)
+        This:egpAlign(EGPI,0,1)
+
+        This:egpact_addHook(Self,"use","",table()) # Block using buttons behind the model
+
+        Self[1,table] = This:egpact_CrossButton(Self[1,table],table(
+            "position" = BarPosition+vec2(Size:x()/2-Radius-5,0)
+            ,"size" = 10
+            ,"border" = 1
+            ,"width" = 4
+        ))
+        This:egpact_addHook(Self[1,table],"use","egphook_CloseModel",table("model"=Self,"egp"=This))
+        This:egpact_addHook(Self[1,table],"hover","egphook_ButtonHover",table("scale" = 1.1))
+
+
+
+        return Self
+    }
+
+    function wirelink:egpact_Model_setChild(Model:table, Child, Component:table){
+        This:egpact_parentComponent(Component,egpAllocGet(Model):x()+1)
+        Model[Child+1,table] = Component
+    }
+
+    function wirelink:egphook_CloseModel(Component:table,Event:table,Props:table){
+        This:egpact_removeComponent(Props["model",table])
+    }
+
+    # # # # # # # #
+    # Button
+
+    function table wirelink:egpact_Button(Self:table, Props:table) {
+        local Position = Props["position",vector2]
+        local Size = Props["size",vector2]
+        local Border = Props["border",number]
+
+        local Alloc = This:egpAlloc(Self, 3)
+        local EGPI = Alloc:x()
+
+        This:egpRoundedBox(EGPI,Position,Size)
+        This:egpRadius(EGPI,5)
+        This:egpColor(EGPI,vec())
+
+        EGPI++
+        This:egpRoundedBox(EGPI,Position,Size-Border*2)
+        This:egpRadius(EGPI,5)
+        This:egpColor(EGPI,Props:exists("color")? Props["color",vector] : vec(255))
+
+        EGPI++
+        This:egpText(EGPI,Props["text",string],Position)
+        This:egpColor(EGPI,vec())
+        This:egpSize(EGPI,24)
+        This:egpAlign(EGPI,1,1)
+
+
+        return Self
+    }
+
+
+    function wirelink:egphook_ButtonHover(Component:table,Event:table,Props:table){
+        local EGP = This
+
+        local Scale = Props["scale",number]
+        Scale = Scale ? Scale : 1
+
+        if(Event["changed",number]){
+            local ColorA = Props["colora",vector]
+            ColorA = ColorA ? ColorA : vec(50)
+            local ColorB = Props["colorb",vector]
+            ColorB = ColorB ? ColorB : vec(0)
+
+            local Alloc = egpAllocGet(Component)
+            if(Event["hover",number]){
+                Props["scale_a_init",vector2] = EGP:egpSize(Alloc:x())
+                Props["scale_b_init",vector2] = EGP:egpSize(Alloc:x()+1)
+
+                EGP:egpSize(Alloc:x(), EGP:egpSize(Alloc:x())*Scale)
+                EGP:egpSize(Alloc:x()+1, EGP:egpSize(Alloc:x()+1)*Scale)
+                EGP:egpColor(Alloc:x(), ColorA)
+            }else{
+                EGP:egpSize(Alloc:x(), Props["scale_a_init",vector2])
+                EGP:egpSize(Alloc:x()+1, Props["scale_b_init",vector2])
+                EGP:egpColor(Alloc:x(), ColorB)
+            }
+        }
+    }
+
+
+
+    # # # # # # # #
+    # Handle Hooks
+
+
+    function handleEgpactHooks(){
+        if(keyClk()) {
+            if(!KEYS_PRESSED:exists(keyClk():id())){
+                KEYS_PRESSED[keyClk():id(),table]=table()
+            }
+
+            local KEYS = KEYS_PRESSED[keyClk():id(),table]
+            local Pressed =  !KEYS[keyClkPressedBind(),number]
+            KEYS[keyClkPressedBind(),number] = Pressed
+
+            local Entity = keyClk():aimEntity()
+            if(keyClkPressedBind()=="use" & Pressed & EGPACT_HOOKS:exists(Entity:creationID())){
+                #print("tetet ",Entity:creationID()," ",Entity:type())
+                local Wirelink = Entity:wirelink()
+                Wirelink:egpact_doHook("use",table("target" = Wirelink:egpCursor(keyClk())))
+            }
+        } elseif(clk("egp_hook_cursor")) {
+            timer("egp_hook_cursor",200)
+
+            foreach(K,Player:entity = EGPACT_HOOK_PLAYERS){
+                local Entity = Player:aimEntity()
+
+                if(EGPACT_HOOKS:exists(Entity:creationID())){
+                    local Wirelink = Entity:wirelink()
+
+                    #print("cursor test ", EGPACT_HOOKS)
+
+                    Wirelink:egpact_doHook("hover",table("target" = Wirelink:egpCursor(Player)))
+                }
+            }
+        }
+    }
+
+    function runOnEgpactHooks(Player:entity,Wirelink:wirelink,On){
+        if(On){
+            EGPACT_HOOK_PLAYERS[Player:steamID(),entity] = Player
+            runOnKeys(Player,1)
+            timer("egp_hook_cursor",200)
+        } else {
+            EGPACT_HOOK_PLAYERS:unset(Player:steamID())
+            runOnKeys(Player,0)
+            if(!EGPACT_HOOK_PLAYERS:count()){
+                stoptimer("egp_hook_cursor")
+            }
+        }
+    }
+}

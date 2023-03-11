@@ -1,0 +1,33 @@
+@name debugcore
+@persist DEBUGCORE_OP_COUNT_PREV DEBUGCORE_HARDQUOTA_PERCENT DEBUGCORE_OP_OFFSET
+
+if(first()|duped()|dupefinished()){
+    DEBUGCORE_HARDQUOTA_PERCENT = 100/hardQuota()
+    DEBUGCORE_OP_OFFSET = 121
+    function opCountStart(){
+        DEBUGCORE_OP_COUNT_PREV=maxquota()-DEBUGCORE_OP_OFFSET
+
+    }
+
+    function assertTrue(Input,Error:string){
+        if(!Input){
+            error(Error)
+        }
+    }
+
+
+    function opCountEnd(Name:string){
+        local Ops = DEBUGCORE_OP_COUNT_PREV-maxquota()
+        print(format("Ops for [%s]: %d (%f%% of quota)",Name,Ops,Ops*DEBUGCORE_HARDQUOTA_PERCENT))
+    }
+
+    if(entity():getName()=="debugcore"){
+        opCountStart()
+        local R = ranger(100)
+        for(I=1,1000){
+            R = ranger(100)
+        }
+        opCountEnd("Test")
+    }
+}
+

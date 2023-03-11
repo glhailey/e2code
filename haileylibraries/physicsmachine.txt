@@ -1,0 +1,130 @@
+@name physicsmachine
+@persist MACHINE_TICKMILLIS TestTable:table
+
+if (first()|duped()){
+    #include "haileylibraries/physicscore"
+    #include "haileylibraries/delaydo"
+
+    MACHINE_TICKMILLIS = floor(tickInterval()*100)*0.75
+	################################################################################################
+
+    function moveToward_delay(Input:table) {
+        Time = curtime()-Input["t0",number]
+        #print(Time)
+        if (Time < Input["t1",number]) { # Accelleration
+            LT = Time
+            Distance = Input["a/2",number] * LT * LT
+
+            delayDo("moveToward_delay",Input,MACHINE_TICKMILLIS)
+        } elseif(Time < Input["t2",number]) { # Constant Speed
+            LT = Time - Input["t1",number]
+            Distance = Input["d1",number] + Input["s",number] * LT
+
+            delayDo("moveToward_delay",Input,MACHINE_TICKMILLIS)
+        } elseif(Time < Input["t3",number]) { # Decelleration
+            LT = (Input["t3",number] - Time)
+            Distance = Input["dt",number] - Input["a/2",number] * LT * LT
+
+            delayDo("moveToward_delay",Input,MACHINE_TICKMILLIS)
+        } else { # End
+            Input["physics_object",table]:setPos(Input["end",vector])
+            if (Input["callback_function",string]) {
+                delayDo(Input["callback_function",string],Input["callback_input",table],MACHINE_TICKMILLIS)
+            }
+            return
+        }
+        Input["physics_object",table]:setPos(mix(Input["end",vector],Input["start",vector],Distance/Input["dt",number]))
+    }
+
+    #[
+        Moves a physics object to a target position over the course of several activations
+        Controllable acceleration and max speed.
+
+        If Speed is set to zero or less, max speed is unlimited
+    ]#
+    function table:moveToward(Target:vector,Speed:number,Accel:number, Callback:string, CallbackInput:table) {
+
+
+        if(Speed <= 0){
+            Speed = This["speed",number]/tickInterval()
+        }
+
+        if(Accel<=0){
+            Accel = Speed/tickInterval()
+        }
+
+        local DT = This["position_local",vector]:distance(Target)
+        local T1 = Speed/Accel # Time to get up to speed
+        local DT1 = Speed/2*T1 # Distance traveled in that time
+
+        if (DT1 > DT/2) {
+            DT1 = DT / 2
+            T1 = sqrt(2*DT1/Accel)
+            Speed = Accel*T1
+        }
+        local DT2= DT-2*DT1 # Distance at constant speed
+        local T2 = DT2/Speed # Time at constant speed
+        local TT = T1*2+T2 # Total time
+
+        Input = table(
+            "start" = This["position_local",vector], "end" = Target, "physics_object" = This,
+            "callback_function" = Callback, "callback_input" = CallbackInput,
+            "a/2" = Accel/2, "s" = Speed,
+            "t1"=T1, "t2" = T1+T2, "t3" = T1*2+T2, "t0" = curtime(),
+            "d1" = DT1, "d2" = DT2, "dt" = DT)
+        moveToward_delay(Input)
+    }
+
+    ################################################################################################
+
+    function moveAlongPath_delay(Input:table){
+
+        Path = Input["path",array]
+        if(Input["i",number] <= Path:count()){
+            Input["i",number] = Input["i",number]+1
+            Input["physics_object",table]:moveToward(Path[Input["i",number]-1,vector],Input["s",number],Input["a",number],"moveAlongPath_delay",Input)
+        } else {
+            if (Input["callback_function",string]) {
+                delayDo(Input["callback_function",string],Input["callback_input",table],MACHINE_TICKMILLIS)
+            }
+            return
+        }
+    }
+
+    function table:moveAlongPath(Path:array, Speed:number, Accel:number, Callback:string, CallbackInput:table){
+        moveAlongPath_delay(table(
+            "physics_object" = This, "path" = Path, "s" = Speed, "a" = Accel,
+            "callback_function" = Callback, "callback_input" = CallbackInput,
+            "i" = 1
+        ))
+    }
+
+    ################################################################################################
+
+    function rotateTo_delay(Input:table) {
+        Time = curtime()-Input["t0",number]
+        if(Time<Input["t1",number]){
+            local Q = slerp(Input["q1",quaternion],Input["q2",quaternion],Time/Input["t1",number])
+            Input["physics_object",table]:setAng(Q:toAngle())
+            delayDo("rotateTo_delay",Input,MACHINE_TICKMILLIS)
+        } else {
+            Input["physics_object",table]:setAng(Input["q2",quaternion]:toAngle())
+            if (Input["callback_function",string]) {
+                delayDo(Input["callback_function",string],Input["callback_input",table],MACHINE_TICKMILLIS)
+            }
+            return
+        }
+    }
+
+    function table:rotateTo(Target:angle, Speed:number, Callback:string, CallbackInput:table){
+        local Q1 = quat(This["angle_local",angle]):normalized()
+        local Q2 = quat(Target):normalized()
+        rotateTo_delay(table(
+            "q1" = Q1, "q2" = Q2, "t1" = abs(rotationAngle(Q2-Q1)/Speed), "t0" = curtime(),
+            "physics_object" = This,
+            "callback_function" = Callback, "callback_input" = CallbackInput
+        ))
+    }
+}
+
+

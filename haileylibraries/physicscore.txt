@@ -1,0 +1,240 @@
+# Save as haileylibraries/physicscore
+@name physicscore
+@persist GMOD_UNIT PHYSICSCORE_PHYSICS_OBJECT_LIST:table PHYSICSCORE_PHYSICS_OBJECT_ID:number PHYSCORE_CACHE_REFRESH_TIME:number PHYSCORE_CACHE_REFRESH_RATE:number
+
+if(first()|duped()){
+	# Configurable, not necessary unless you change the mass of props often. You could even make this higher.
+	# Higher = better performance but it updates mass less often.
+    PHYSCORE_CACHE_REFRESH_RATE = 1000
+
+    PHYSCORE_CACHE_REFRESH = 0
+    PHYSICSCORE_PHYSICS_OBJECT_ID = 0
+    GMOD_UNIT = 47.471
+    function void entity:rotateToTarget(Angle:angle,Velocity){
+        This:applyAngForce((This:toLocal(Angle)*Velocity - Velocity/10*This:angVel())*shiftL(ang(This:inertia())))
+    }
+    function entity:forceTowardsCenter(Target:vector,Speed){
+        local Dir = Target-This:boxCenterW()
+        This:applyForce((Dir * Speed - This:vel())*This:mass())
+    }
+    function entity:forceTowardsMassCenter(Target:vector,Speed){
+        local Dir = Target-This:massCenter()
+        This:applyForce((Dir * Speed - This:vel())*This:mass())
+    }
+    function entity:forceTowards(Target:vector,Speed){
+        local Dir = Target-This:pos()
+        This:applyForce((Dir * Speed - This:vel())*This:mass())
+    }
+
+    #********************************************************************************************************************************************************
+    function table:setEntity(Entity:entity){
+        This["entity",entity] = Entity
+        This["mass",number] = Entity:mass()
+        This["inertia",angle] = shiftL(ang(Entity:inertia()))
+    }
+
+    function table:setPos(P:vector){} # Functions are calculated top down, sadly
+    function table:setAng(A:angle){} # Functions are calculated top down, sadly
+
+    function table:updatePosition(){
+        This:setPos(This["position_local",vector])
+    }
+    function table:updateAngle(){
+        This:setAng(This["angle_local",angle])
+    }
+	function table:updatePosAng(){
+		This:setPos(This["position_local",vector])
+		This:setAng(This["angle_local",angle])
+	}
+
+    function table:setPos(Position:vector){
+        if(This["parent",table])
+        {
+            local Parent = This["parent",table]
+            local PositionActual = toWorld(Position,ang(),Parent["position",vector],Parent["angle",angle])
+            This["position",vector] = PositionActual
+            This["position_local",vector] = Position
+        }
+        else
+        {
+            This["position",vector] = Position
+            This["position_local",vector] = Position
+        }
+        for(I=1,This["children",table]:count()){
+            This["children",table][I,table]:updatePosAng()
+        }
+    }
+
+    function table:setAng(Angle:angle){
+        if(This["parent",table])
+        {
+            local Parent = This["parent",table]
+            local AngleActual = toWorldAng(vec(),Angle,Parent["position",vector],Parent["angle",angle])
+            This["angle",angle] = AngleActual
+            This["angle_local",angle] = Angle
+        }
+        else
+        {
+            This["angle",angle] = Angle
+            This["angle_local",angle] = Angle
+        }
+        for(I=1,This["children",table]:count()){
+            This["children",table][I,table]:updatePosAng()
+        }
+    }
+
+    function table:setSpeed(Speed:normal){
+        This["speed",normal] = Speed
+        This["cached_vec",vector] = vec(This["angspeed",number],This["angspeedQuotient",normal],Speed)
+    }
+    function table:setAngSpeed(AngSpeed:normal){
+        This["angspeed",normal] = AngSpeed
+        This["angspeedQuotient",normal] = AngSpeed/10
+        This["cached_vec",vector] = vec(AngSpeed,This["angspeedQuotient",normal],This["speed",normal])
+    }
+
+    function entity table:getEntity(){
+        return This["entity",entity]
+    }
+    function vector table:getPos(){
+        return This["position",vector]
+    }
+    function angle table:getAngle(){
+        return This["angle",angle]
+    }
+    function normal table:getSpeed(){
+        return This["speed",normal]
+    }
+    function normal table:getAngSpeed(){
+        return This["angspeed",normal]
+    }
+
+    #********************************************************************************************************************************************************
+
+    function table:parentTo(PhysicsObject:table){
+        PhysicsObject["children",table][PhysicsObject["children",table]:count()+1,table] = This
+        This["parent",table]=PhysicsObject
+        This:updatePosAng()
+    }
+
+    function table:unparent(){
+        local Parent = This:removeTable("parent")
+        local C = 1
+        local Children = Parent["children",table]
+        local NewChildren = table()
+        for(I=1,Children:count()){
+            if(This!=Children[I,table]){
+                NewChildren[C,table] = Children[I,table]
+                C++
+            }
+        }
+        Parent["children",table] = NewChildren
+    }
+
+    function table newPhysicsObject(){
+        #PHYSICSCORE_PHYSICS_OBJECT_ID++
+        return table(
+            "entity" = noentity()
+            ,"position_local" = vec()
+            ,"angle_local" = vec()
+
+            ,"position" = vec()
+            ,"angle" = ang()
+
+            ,"speed" = 20
+            ,"angspeed" = 200
+            ,"angspeedQuotient" = 20
+            ,"cached_vec" = vec(200,20,20)
+
+            ,"parent" = table()
+            ,"children" = table()
+            #,"id" = PHYSICSCORE_PHYSICS_OBJECT_ID
+        )
+    }
+
+    function table newPhysicsObject(Entity:entity){
+        local T = newPhysicsObject()
+        T:setEntity(Entity)
+        return T
+    }
+
+    function table newPhysicsObject(Entity:entity,Position:vector){
+        local T = newPhysicsObject()
+        T:setEntity(Entity)
+        T:setPos(Position)
+        return T
+    }
+
+    function table newPhysicsObject(Entity:entity,Position:vector,Angle:angle){
+        local T = newPhysicsObject()
+        T:setEntity(Entity)
+        T:setPos(Position)
+        T:setAng(Angle)
+        return T
+    }
+
+    function table entity:toPhysicsObject(){
+        local Entity = This
+
+        local PhysicsObject = newPhysicsObject()
+        PhysicsObject:setEntity(Entity)
+        PhysicsObject:setPos(Entity:pos())
+        PhysicsObject:setAng(Entity:angles())
+        return PhysicsObject
+    }
+
+    function addPhysicsObject(PhysicsObject:table)
+    {
+        if (PhysicsObject["entity",entity]) {
+            PHYSICSCORE_PHYSICS_OBJECT_LIST[PhysicsObject:id(),table] = PhysicsObject
+        }
+        foreach(K:number, V:table = PhysicsObject["children",table]) {
+            addPhysicsObject(V)
+        }
+    }
+
+    function removePhysicsObject(PhysicsObject:table)
+    {
+        PHYSICSCORE_PHYSICS_OBJECT_LIST:unset(PhysicsObject:id())
+		foreach(K:number, V:table = PhysicsObject["children",table]) {
+            removePhysicsObject(V)
+        }
+    }
+
+    function clearPhysicsObjects()
+    {
+        PHYSICSCORE_PHYSICS_OBJECT_LIST=table()
+    }
+
+    function number handlePhysicsObjects()
+    {
+        if(tickClk()){
+            foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
+            {
+                #local Obj = PHYSICSCORE_PHYSICS_OBJECT_LIST[I,table]
+                local Ent = Obj["entity",entity]
+                local StoreVec = Obj["cached_vec",vector] # vec(Obj["angspeed",number],Obj["angspeedQuotient",number],Obj["speed",number])
+
+                #local Dir = Obj["position",vector]-Ent:pos()
+                #Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*Obj["angspeed",number] - Obj["angspeedQuotient",number]*Ent:angVel())*Obj["inertia",angle])
+                #Ent:applyForce(((Obj["position",vector]-Ent:pos()) * Obj["speed",number] - Ent:vel() + vec(0,0,20))*(Ent:mass()))
+
+                Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*StoreVec:x() - StoreVec:y()*Ent:angVel())*Obj["inertia",angle])
+                Ent:applyForce(((Obj["position",vector]-Ent:pos()) * StoreVec:z() - Ent:vel() + vec(0,0,20))*(Ent:mass()))
+            }
+
+            if(PHYSCORE_CACHE_REFRESH<=curtime()){
+                PHYSCORE_CACHE_REFRESH = curtime()+PHYSCORE_CACHE_REFRESH_RATE/1000
+                foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
+                {
+
+                    local Ent = Obj["entity",entity]
+                    Obj["mass",number] = Ent:mass()
+                    Obj["inertia",angle] = shiftL(ang(Ent:inertia()))
+                }
+            }
+            return 1
+        }
+        return 0
+    }
+}

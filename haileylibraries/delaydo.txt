@@ -1,0 +1,100 @@
+# Save as haileylibraries/delaydo
+# Save as haileylibraries/delaydo
+@name "haileylibraries/delaydo"
+@persist DELAYDO_DELAYED_FUNCTIONS:table DELAYDO_FORMAT:string DELAYDO_REGEX:string
+
+if(first()|duped()|dupefinished())
+{
+    DELAYDO_FORMAT = "delaydo/%s"
+    DELAYDO_REGEX = "^delaydo/(.+)"
+    
+    function void delayDo(Function:string, Data:table, Timer:number)
+    {
+        local EndTime = curtime()+Timer/1000
+        if(DELAYDO_DELAYED_FUNCTIONS:exists(Function)&DELAYDO_DELAYED_FUNCTIONS[Function,table]:count())
+        {
+            local DelayedFunctionList = DELAYDO_DELAYED_FUNCTIONS[Function,table]
+            local Count = DelayedFunctionList:count()
+            foreach(K:number, Entry:table = DelayedFunctionList)
+            {
+                if(EndTime<=Entry["endtime",number])
+                {
+                    DelayedFunctionList:insertTable(K,table(
+                        "function" = Function
+                        ,"endtime" = EndTime
+                        ,"data" = Data
+                    ))
+                    
+                    local TimerString = format(DELAYDO_FORMAT,Function)
+                    #print("inserted ",Function)
+                    if(K==1){ # This means it is shortest
+                        stoptimer(TimerString)
+                        timer(TimerString,Timer)
+                    }
+                    return
+                }
+                
+            }
+            #print("succeedes all ",Function," ",EndTime-DelayedFunctionList[1,table]["endtime",number])
+            DelayedFunctionList:pushTable(table(
+                "function" = Function
+                ,"endtime" = EndTime
+                ,"data" = Data
+            ))
+        }
+        elseif(Function) # Don't add the null function
+        {
+            DELAYDO_DELAYED_FUNCTIONS[Function,table] = table(
+                1 = table(
+                    "function" = Function
+                    ,"endtime" = EndTime
+                    ,"data" = Data
+                )
+            )
+            timer(format(DELAYDO_FORMAT,Function),Timer)
+        }
+        
+    }
+    
+    function void stopDelayDo(Function:string){ # Stops all delayDo instances of that function.
+        if(DELAYDO_DELAYED_FUNCTIONS:exists(Function)){
+            DELAYDO_DELAYED_FUNCTIONS[Function,table] = table() # Clear buffer
+             stoptimer(format(DELAYDO_FORMAT,Function)) # stop timer
+        }
+    }
+    
+    function void delayDo(Function:string, Timer:number)
+    {
+        delayDo(Function,table(),Timer)
+    }
+    
+    function void delayDo(Table:table) # For use in other callback functions
+    {
+        delayDo(Table["callback",string],Table["data",table],Table["timer",number])
+    }
+    
+    function table delayDoTable(Function:string, Data:table, Timer:number){# For use with delayDo Callback form
+        return table("data" = Data, "callback" = Function, "timer" = Timer)
+    }
+    
+    function number handleDelayDo()
+    {
+        local Clk = clkName()
+        if(Clk){
+            local Func = clkName():match(DELAYDO_REGEX)[1,string]
+            if(Func)
+            {
+                local Table = DELAYDO_DELAYED_FUNCTIONS[Func,table]
+                local FRun = Table:removeTable(1)
+                
+                FRun["function",string](FRun["data",table])
+                if(Table:count())
+                {
+                    timer(format(DELAYDO_FORMAT,Func),(Table[1,table]["endtime",number] - curtime())  * 1000)
+                }
+                return 1
+            }
+        }
+        return 0
+    }
+}

@@ -1,0 +1,87 @@
+@name toolcore test
+
+if(first()){
+    #include "haileylibraries/toolcore"
+
+    #[
+        The data entry persists across calls to a tool per player while the tool is out.
+        I.e. if
+
+            Data["test",number] = 1
+
+        in tooltest_onSwitch()
+
+        then
+
+            Data["test",number] == 1
+
+        is true in tooltest_onThink
+    ]#
+
+    # Define think, switch, and key functions for a tool like so
+
+    function tooltest_onThink(Player:entity, Data:table){
+        print(_HUD_PRINTCENTER,format("holos made: %d\nholos remaining: %d\ntimes clicked: %d",Data["holo",number]/2,floor(holoRemainingSpawns()/2),Data["clicked",number]))
+    }
+
+    # Switch is true if the tool has just been switched to.
+    # Switch is false if the tool was just changed to something else
+
+    function tooltest_onSwitch(Player:entity, Switch, Data:table){
+        if(Switch){
+            print("tooltest switch to")
+        } else{
+            print("tooltest switch from")
+            holoDeleteAll()
+        }
+    }
+
+    # onkey recieves keybind events such as "+walk" "-walk" "+attack" "+attack2" etc
+    # recommend using a switch statement for more complicated tools
+    function tooltest_onKey(Player:entity, Bind:string, Data:table){
+        print("tooltest "+Bind)
+        switch(Bind){
+            case "+attack",
+                Data["clicked",number] = Data["clicked",number] + 1
+            break
+
+            # Fun thing I added for shits and giggles
+            case "+attack2",
+                Data["holo",number] = Data["holo",number]+3
+                #holoCreate(Data["holo",number],Player:aimPos()+vec(0,0,1),vec(-20,-20,-0),ang(),vec(0),"hqcylinder")
+                holoCreate(Data["holo",number],Player:aimPos(),vec(-21),ang(),vec4(vec(),255),"hqicosphere2")
+
+                holoCreate(Data["holo",number]-2,Player:aimPos(),vec(-21),ang(),vec4(vec(),255),"hqicosphere2")
+                holoMaterial(Data["holo",number]-2,"skybox/sky_day02_05lf")
+
+                holoCreate(Data["holo",number]-1,Player:aimPos(),vec(-20),ang(),vec4(vec(),254),"hqicosphere2")
+                holoMaterial(Data["holo",number]-1,"skybox/sky_day02_05lf")
+                #holoEntity(Data["holo",number]-1):setRenderMode(9)
+            break
+        }
+    }
+
+    # Template for making a new tool
+    function tool_onThink(Player:entity, Data:table){
+
+    }
+    function tool_onSwitch(Player:entity,Switch, Data:table){
+
+    }
+    function tool_onKey(Player:entity, Key:string, Data:table){
+
+    }
+    addTool("tool","tool_onThink","tool_onSwitch","tool_onKey",0)
+
+    # This command is used to begin listening for tool updates for a player.
+    runOnTools(owner(),1)
+
+    addTool("tooltest","tooltest_onThink","tooltest_onSwitch","tooltest_onKey",0)
+
+    # This is a code way to set your current tool.
+	# Add this to a chat hook for ease of use.
+    setTool("tooltest")
+}
+
+# Must be run to handle tools
+handleTools()

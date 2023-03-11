@@ -1,0 +1,151 @@
+
+if (first()|duped()|dupefinished()){
+    #include "haileylibraries/physicsmachine"
+
+    function table:varHopper_setOpening(Opening:vector2) {
+        local W = 38.4
+        local X = W/2-(Opening:x())
+        local Y = W/2-(Opening:y())
+
+        local AngleX = acos((W-Opening:x()-3)/24.5)
+        local AngleY = acos((W-Opening:y()-3)/24.5)
+        local Height = sqrt(24*24-Y*Y)
+
+        This["hw",table]:setPos(vec(X-2,36.5/2,Height/2))
+
+        This["h0",table]:setPos(vec(X-1,36.5/2,Height))
+        This["h0",table]:setAng(ang(0,-90,180-AngleX))
+
+        This["h1",table]:setPos(vec(X+(Opening:x()-24-1.5)/2,Y-2,0))
+        This["h1",table]:setAng(ang(0,0,180-AngleY))
+    }
+
+    function table varHopper_new(Box:entity, Hopper0:entity, Hopper1:entity, HopperWall:entity, Opening:vector2, Pos:vector, Ang:angle) {
+        Box:setMass(5000)
+        Hopper0:setMass(5000)
+        Hopper1:setMass(5000)
+        HopperWall:setMass(5000)
+
+        local Obj = newPhysicsObject(Box,Pos,Ang)
+
+        local E = newPhysicsObject(Hopper0)
+        E:parentTo(Obj)
+        Obj["h0",table] = E
+
+        local E = newPhysicsObject(Hopper1)
+        E:parentTo(Obj)
+        Obj["h1",table] = E
+
+        local E = newPhysicsObject(HopperWall,vec(),ang(0,-90,-90))
+        E:parentTo(Obj)
+        Obj["hw",table] = E
+
+        Obj:varHopper_setOpening(Opening)
+        return Obj
+    }
+
+
+
+    ################################################################################################
+
+    function table:resourceCollector_setOffset(VectorOff:vector) {
+        This["use_plate",table]:setPos(VectorOff)
+        This["use_offset",vector] = VectorOff
+        This["use_height",number] = VectorOff:z()
+        #This["body",table]:setPos(-This["use_offset",vector]:setZ(0))
+    }
+
+    function table:resourceCollector_setOffset(VectorOff:vector2) {
+        This["use_offset",vector] = vec(VectorOff:x(),VectorOff:y(),This["use_height",number])
+        This["use_plate",table]:setPos(This["use_offset",vector])
+    }
+
+
+    function table resourceCollector_new(ResourceBox:entity, ResourcePlate:entity, ResourceUsePlate:entity, Pos:vector, Ang:angle){
+        local RESOURCE_MANIPULATOR = newPhysicsObject(noentity(),Pos,ang())
+        RESOURCE_MANIPULATOR["use_size",number] = ResourceUsePlate:boxSize():x()
+        RESOURCE_MANIPULATOR["use_offset",vector] = vec(0,0,0)
+        RESOURCE_MANIPULATOR:setSpeed(5)
+
+        local Body = newPhysicsObject(ResourceBox,vec(0,0,1))
+        Body:setSpeed(5)
+        Body:parentTo(RESOURCE_MANIPULATOR)
+
+
+        local L = newPhysicsObject(noentity(),vec(0,0,0))
+        local E = newPhysicsObject(ResourcePlate,-ResourcePlate:massCenterL())
+        E:setSpeed(5)
+        L:parentTo(Body)
+        E:parentTo(L)
+        RESOURCE_MANIPULATOR["plate",table] = L
+
+        local L = newPhysicsObject(noentity(),vec(),ang(90,90,90))
+        local E = newPhysicsObject(ResourceUsePlate,-ResourceUsePlate:massCenterL())
+        E:setSpeed(5)
+        L:parentTo(RESOURCE_MANIPULATOR)
+        E:parentTo(L)
+
+        RESOURCE_MANIPULATOR["use_plate",table] = L
+        RESOURCE_MANIPULATOR["body",table] = Body
+
+        RESOURCE_MANIPULATOR:resourceCollector_setOffset(vec(0,0,62))
+
+        return RESOURCE_MANIPULATOR
+    }
+
+    function number table:resourceCollector_canCouple(Player:entity) {
+        local Distance = 50
+        local VectorHeading = owner():eye()
+        local Cos = VectorHeading:dot(VectorHeading:setZ(0):normalized())
+
+        #local Height = owner():shootPos()-owner():pos()
+
+        local Origin = Player:shootPos()+VectorHeading*Distance/Cos
+        # Origin is the projection of our view angle onto an axis through which the use plate will go.
+
+        MinZ = Player:pos():z()+30
+        MaxZ = Player:shootPos():z()+sqrt(70^2-Distance^2)
+
+        if(Origin:z() < MinZ+This["use_height",number]-This["use_size",number]*0.8) {
+            return 0
+        } elseif (Origin:z() > MaxZ+This["use_height",number]) {
+            return 0
+        }
+        return 1
+    }
+
+    function void table:resourceCollector_coupleTo(Player:entity, Callback:string, CallbackInput:table) {
+        local Distance = 50
+
+        local VectorHeading = owner():eye()
+        local Angle = VectorHeading:setZ(0):toAngle()+ang(0,0,0)
+
+        local Cos = VectorHeading:dot(VectorHeading:setZ(0):normalized())
+
+        #local Height = owner():shootPos()-owner():pos()
+
+        local Offset = toWorld(This["use_offset",vector],ang(),vec(),Angle)
+        local Origin = Player:shootPos()+VectorHeading*Distance/Cos
+
+        # Origin is the projection of our view angle onto an axis through which the use plate will go.
+        local Pos = Player:pos()+VectorHeading:setZ(0)*Distance
+
+        This:resourceCollector_setOffset(Origin-Pos)
+        This:setAng(Angle)
+        This:moveAlongPath(array(Pos:setZ(This["position",vector]:z()),Pos),0,300,Callback,CallbackInput)
+    }
+
+    #[
+        Manifest should contain manifest entries:
+        table(
+            "buy_command" : string
+            "offset" : vector2
+            "count" : number
+        )
+    ]#
+    function table:resourceCollector_CollectManifest(Manifest:table) {
+        Manifest
+    }
+
+
+}

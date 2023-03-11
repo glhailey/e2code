@@ -1,0 +1,298 @@
+@name chatcommands
+@persist CHATCOMMANDCORE_COMMANDS:table CHATCOMMANDS_DEFAULT_CLEARANCE_FUNCTION:string # Include this line near at the top of any e2 you add this to
+
+#MADE BY G.L.HAILEY
+if(first()|duped()|dupefinished()){
+    CHATCOMMANDCORE_COMMANDS = table()
+    CHATCOMMANDS_DEFAULT_CLEARANCE_FUNCTION = "clearanceOwner"
+
+    function addChatCommand(CommandName:string,CommandFunction:string,ClearanceFunction:string,ClearanceData:table,HelpString:string)
+    {
+        CHATCOMMANDCORE_COMMANDS[CommandName,table] = table(
+             "function" = CommandFunction
+            ,"clearanceFunction" = ClearanceFunction
+            ,"clearanceData" = ClearanceData
+            ,"help" = HelpString
+        )
+    }
+    function addChatCommand(CommandName:string,CommandFunction:string,ClearanceFunction:string,ClearanceData:table)
+    {
+        addChatCommand(CommandName,CommandFunction,ClearanceFunction,ClearanceData,"")
+    }
+    function addChatCommand(CommandName:string,CommandFunction:string,HelpString:string)
+    {
+        addChatCommand(CommandName,CommandFunction,"",table(),HelpString)
+    }
+    function addChatCommand(CommandName:string,CommandFunction:string)
+    {
+        addChatCommand(CommandName,CommandFunction,"",table(),"")
+    }
+    function removeChatCommand(CommandName:string)
+    {
+        CHATCOMMANDCORE_COMMANDS:remove(CommandName)
+    }
+
+    function number handleChatCommands()
+    {
+        if(!chatClk()){
+            return 0
+        }
+        local SaidString = lastSaid()
+        local Array = lastSaid():explodeRE(" +")
+        local Command = Array:shiftString()
+
+        if(CHATCOMMANDCORE_COMMANDS:exists(Command)){
+            local CommandTable = CHATCOMMANDCORE_COMMANDS[Command,table]
+            if(CommandTable["clearanceFunction",string]){
+                if(CommandTable["clearanceFunction",string](lastSpoke(),CommandTable["clearanceData",table])[number]){
+                    CommandTable["function",string](lastSpoke(),Array)
+                    return 1
+                }
+            } elseif(CHATCOMMANDS_DEFAULT_CLEARANCE_FUNCTION & CHATCOMMANDS_DEFAULT_CLEARANCE_FUNCTION(lastSpoke(),CommandTable["clearanceData",table])[number]){
+                CommandTable["function",string](lastSpoke(),Array)
+                return 1
+            }
+        }
+        return 0
+    }
+    function entity:sendMsgSAM(Message:string){
+        if(This==owner()){
+            printColor(vec(74,166,228),"|NC|RP|",vec(236,241,241)," PM to ",vec(244,65,61),owner():name(),vec(236,241,241),": ",vec(0,231,62),Message) # A bit cheeky of me innit?
+        }else{
+            local MessageLeft = Message
+            #while(MessageLeft:length()>0)
+            #{
+            #    local MessageSub = MessageLeft:index
+            #}
+            concmd("sam pm "+This:steamID() +"\""+Message+"\"")
+        }
+    }
+
+    function setDefaultClearanceFunction(Function:string){
+        CHATCOMMANDS_DEFAULT_CLEARANCE_FUNCTION = Function
+    }
+
+    function number clearanceOwner(Player:entity,Data:table){
+        return Player==owner()
+    }
+
+    function number clearanceNone(Player:entity, Data:table){
+        return 1
+    }
+
+    function chatHelp(Caller:entity,Args:array){
+        if(!chatClk(owner())){
+            return
+        }
+        printColor(vec(255,200,100),"Help for "+entity():getName())
+        foreach(K,Command:table = CHATCOMMANDCORE_COMMANDS){
+            printColor(vec(255,200,100),"\t"+K,vec(255)," - "+Command["help",string])
+        }
+    }
+
+    addChatCommand("!help","chatHelp","Displays the available chat commands for this e2.")
+    runOnChat(1)
+}
+
+#[Example of how to use it, do not include this in e2s you make]#
+
+if(entity():getName() == "chatcommands"){
+    if(first()|duped()|dupefinished()){
+        function chatDoSomething(Caller:entity,Args:array){ # Format your chat commands like this, with a Caller entity and an Args array
+            # Caller will be the player who ran the command, and Args will be an array of the space separated strings that followed it.
+            # For example, if I said !dosomething test test1 test2
+            # Caller would be me, the entity,
+            # And Args would be ["test","test1","test2"]
+
+            print(Caller:name() +" used the command with the following args: "+Args:concat(", "))
+        }
+        function chatDoSomethingOwnerOnly(Caller:entity,Args:array){
+            print(Caller:name() +" used the command meant only for owners. Their first argument was "+Args[1,string])
+        }
+
+        function number clearanceTeam(Player:entity,Data:table){ # Returns 1 if data contains a 1 at the player's team, or if it's the owner of the e2
+            if(Player==owner()) {return 1}
+            return Data[Player:team(),number]
+        }
+        local StaffTeams = table( # Indices correspond to the team number of staff on the server. Note this only works for staff on duty.
+             75 = 1
+            ,76 = 1
+            ,77 = 1
+            ,78 = 1
+            ,79 = 1
+            ,80 = 1
+            ,81 = 1
+            ,82 = 1
+            ,83 = 1
+        )
+
+        function chatDoSomethingStaff(Caller:entity,Args:array){
+            print("someone who is staff executed the command with the folllowing args: "+Args:concat(", "))
+        }
+
+        # This has no clearance function; anyone can use it.
+        addChatCommand("!dosomething","chatDoSomething","Usable by anyone")
+
+        # Some chat commands you'll only want yourself to be able to execute.
+        # Add something like this using the predefined clearanceOwner clearance function.
+        # Note: if your e2 only has commands intended for use by the owner, it is much better to just have handleChatCommands() in an
+        # if(chatClk(owner())){} statement
+        addChatCommand("!dosomethingowner","chatDoSomethingOwnerOnly","clearanceOwner",table(),"Usable by owner")
+
+        #Example of another function using another clearance function.
+        addChatCommand("!dosomethingstaff","chatDoSomethingStaff","clearanceTeam",StaffTeams,"Usable by staff")
+
+        findByClass("player")
+        findClipFromEntity(owner())
+        find():sendMsgSAM("Test") # Message random player
+        owner():sendMsgSAM("Test") # Normally you cant send pms to yourself, but I did something a bit cheeky here innit
+
+        # Try using !help command
+    }elseif(handleChatCommands()){# This is where the chat commands are handled, you'll need this to be somewhere in your code for your commands to run
+    }
+}
+
+
+
+
+
+
+
+
+#DEPRECATED DO NOT USE
+#-----------------------------------------------------------------------------------#
+#--------------------------- BEGIN CHAT COMMAND CORE -------------------------------#
+#-----------------------------------------------------------------------------------#
+#if(first()|duped()){
+#    runOnChat(1)
+#
+#    function findPlayerWithNameFrag(){} function getClearance(){} function commandActivated(){} function commandActivatedOwner(){}
+#
+#    #Pretty self explanatory, comes from my chat core
+#    function entity findPlayerWithNameFrag(Name:string){
+#        runOnChat(1)
+#        Name=Name:lower()
+#        switch (Name){
+#        case "^",return lastSpoke() break
+#        case "?",return players()[random(players():count()),entity] break
+#        default ,
+#            local Players=players()
+#            foreach(K,Player:entity=Players){
+#                if(Player:name():lower():find(Name)){
+#                    return Player
+#                }
+#            }
+#            return noentity()
+#        }
+#    }
+#
+#
+#    #Pretty self explanatory, adapted from my chat core
+#    function entity findPlayerWithSteamID(SteamID:string){
+#        local Players=players()
+#            foreach(K,Player:entity=Players){
+#                if(Player:steamID()==SteamID){
+#                    return Player
+#                }
+#            }
+#        return noentity()
+#    }
+#
+#    #Return the clearance level of a certain player, modify the clearance levels to your will, but these should do fine
+#    function number entity:getClearance(){
+#        if(This==owner()){
+#            return 1337
+#        }else{
+#            local Clearances = table(
+#                0 = 0,     #Joining/Connecting
+#                21 = 9999, #Owner
+#                22 = 9999, #Prettiest Princesses
+#                23 = 4,    #Admineded
+#                24 = 3,    #Modified
+#                25 = 2,    #Respected
+#                26 = 1,    #User
+#                27 = -666, #Bitch
+#                28 = 0,    #Guest
+#                29 = 1,    #Unique Snowflake
+#                30 = 0,    #Test Subject
+#                31 = 0,    #ReportMe
+#                32 = -1,  #ServerCrasher
+#                33 = 1,    #Do A Dubstep
+#                1001 = 0   #Unassigned
+#            )
+#
+#            return Clearances[This:team(),number]
+#        }
+#    }
+#
+#    function number entity:hasClearance(ClearanceRequired){ # Checks whether specified player has required clearance level
+#        return This:getClearance()>=ClearanceRequired
+#    }
+#
+#    #Checks for when a player enters a command
+#    function number commandActivated(Command:string){  # ONLY USE LOWERCASE COMMANDS
+#        if(chatClk()){
+#            local LastSaid=lastSaid():explode(" ")#Creates an array of the message sepparated by spaces
+#            if(LastSaid[1,string]:lower()==Command){ #Checks to make sure if it is the command
+##                LastSaid:shiftString()
+##                local ArgumentRaw=LastSaid #makes an array of the unfiltered arguments... typically useless for our purposes
+##                foreach(K,String:string=ArgumentRaw){ #filters empty spaces from the arguments
+##                    if(!ArgumentRaw[K,string]){
+##                        ArgumentRaw:remove(K)
+##                    }
+##                }
+#                return 1
+##                ChatCommandArguments=ArgumentRaw #ChatArgumentArray
+#            }else{
+#                return 0
+#            }
+#        }else{
+#            return 0
+#        }
+#    }
+#
+#    function number commandActivatedOwner(Command:string){
+#        if( commandActivated(Command) & lastSpoke()==owner()){
+#            return 1
+#        }else{
+#            return 0
+#        }
+#    }
+#
+#    function number commandActivated(Command:string,Clearance){
+#        if( commandActivated(Command) & lastSpoke():hasClearance(Clearance)){
+#            return 1
+#        }else{
+#            return 0
+#        }
+#    }
+#
+#    function array getArgArray(){ # Returns the chat arguments as an array
+#        local LastSaid = lastSaid():trim():explode(" ")
+#        LastSaid:shiftString()
+#        for(K=1,LastSaid:count()){
+#            if(LastSaid[K,string]==""){
+#                LastSaid:remove(K)
+#                K--
+#            }
+#        }
+#        return LastSaid
+#    }
+#
+#    function string getArg(Index){ # Returns the specific argument from the chat
+#        return getArgArray()[Index,string]
+#    }
+#
+#    function entity:sendMsg(Message:string){
+#        if(This==owner()){
+#            print(Message)
+#        }else{
+#            concmd("ulx psay $"+This:steamID() +"\""+Message+"\"")
+#        }
+#    }
+#
+#}
+
+#-----------------------------------------------------------------------------------#
+#-------------------------- FINISH CHAT COMMAND CORE -------------------------------#
+#-----------------------------------------------------------------------------------#

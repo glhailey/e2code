@@ -1,0 +1,120 @@
+@name haileylibraries/toolcore
+@persist TOOLCORE_TOOLS:table TOOLCORE_PLAYERDATA:table TOOLCORE_PLAYERS:table
+
+if(first()|duped()|dupefinished()){
+    function runOnTools(Player:entity, DoTools){
+        local ID = Player:steamID()
+        if(DoTools){
+            if(TOOLCORE_PLAYERS:exists(ID)){
+
+            }else{
+                runOnKeys(Player,1)
+
+                TOOLCORE_PLAYERS[ID, entity] = Player
+                TOOLCORE_PLAYERDATA[ID, table] = table(
+                    "keys" = table()
+                    ,"data" = table()
+                )
+                timer("toolcore_think",100)
+            }
+
+        }else{
+            runOnKeys(Player,0)
+
+            TOOLCORE_PLAYERS:unset(ID)
+            if(!TOOLCORE_PLAYERS:count()){
+                stoptimer("toolcore_think")
+            }
+        }
+    }
+
+    function setTool(ToolName:string){
+        concmd(format("gmod_toolmode \"%s\"",ToolName))
+    }
+
+    function handleTools(){
+        if(keyClk()){
+            local Player = keyClk()
+
+            #print(TOOLCORE_PLAYERS:exists(keyClk():id()), TOOLCORE_TOOLS:exists(keyClk():tool()),!keyClk():isTyping())
+            if( TOOLCORE_PLAYERS:exists(Player:steamID()) & TOOLCORE_TOOLS:exists(keyClk():tool()) & !keyClk():isTyping()){
+                local Tool = TOOLCORE_TOOLS[keyClk():tool(),table]
+                local Data = TOOLCORE_PLAYERDATA[keyClk():steamID(),table]
+
+                #local Key = Player:keyPressed(keyClkPressed()) NOT RELIABLE
+                local Key = !Data["keys",table][keyClkPressedBind(),number]
+                Data["keys",table][keyClkPressedBind(),number] = Key
+                if(!Tool["onKey",string] | curtime() < Data["next_keys",number] | keyClk():tool() != Data["prev_tool",string]){
+                    return
+                }
+
+                Tool["onKey",string](keyClk(), (Key ? "+" : "-" ) + keyClkPressedBind(), Data["data",table])
+            }
+        } elseif(clk("toolcore_think")){
+            timer("toolcore_think",100)
+            foreach(K,E:entity = TOOLCORE_PLAYERS){
+
+                local Data = TOOLCORE_PLAYERDATA[K,table]
+
+
+                # Detect tool switch
+                local ToolName = (E:weapon():type() == "gmod_tool") ? E:tool() : ""
+
+                local Tool = TOOLCORE_TOOLS[ToolName,table]
+
+                if(ToolName != Data["prev_tool",string]){
+                    #print("switched")
+
+                    #print("test",TOOLCORE_TOOLS:exists(Data["prev_tool",string]) ," : ",TOOLCORE_TOOLS[Data["prev_tool",string],table]["onSwitch",string])
+                    if(TOOLCORE_TOOLS:exists(Data["prev_tool",string])){
+                        if(TOOLCORE_TOOLS[Data["prev_tool",string],table]["onSwitch",string]){
+                            TOOLCORE_TOOLS[Data["prev_tool",string],table]["onSwitch",string](E,0,Data["data",table])
+                        }
+
+                        # Save persist context
+                        if(TOOLCORE_TOOLS[Data["prev_tool",string],table]["persist",number]){
+                            Data["tool_"+Data["prev_tool",string],table] = Data["data",table]
+                        }
+
+                    }
+
+                    # Create new context
+                    Data["keys",table] = table()
+
+                    # Load persist context if applicable
+                    if(Tool["persist",number]){
+                        Data["data",table] = Data["tool_"+ToolName,table]
+                    } else {
+                        Data["data",table] = table()
+                    }
+
+                    if(Tool["onSwitch",string]){
+                        Tool["onSwitch",string](E,1,Data["data",table])
+                    }
+
+                    Data["next_keys",number] = curtime()+0.1
+
+                    Data["prev_tool",string] = ToolName
+                }
+
+				# Ensure tool does not fire early
+                if(ToolName == ""){
+                    Data["next_keys",number] = curtime()+0.1
+                }
+
+                if(Tool["onThink",string]  ){
+                    Tool["onThink",string](E,Data["data",table])
+                }
+            }
+
+        }
+    }
+
+    function addTool(ToolName:string, OnThink:string, OnSwitch:string, OnKey:string, Persist){
+       TOOLCORE_TOOLS[ToolName,table] = table("onThink" = OnThink, "onSwitch" = OnSwitch, "onKey" = OnKey, "persist" = Persist)
+    }
+
+    function removeTool(ToolName){
+        TOOLCORE_TOOLS:unset(ToolName)
+    }
+}

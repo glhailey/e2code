@@ -1,0 +1,922 @@
+@name haileylibraries/machinecore
+@persist MACHINECORE_PREVIOUS_COMPONENT:table MACHINECORE_PARENT_COMPONENT:table
+
+if(first()|duped()|dupefinished()){
+    #include "haileylibraries/physicsmachine"
+
+    ################################################################################################
+    # My next paradigm is abstracting movement into movement parts. These will be objects that control movement in specific ways.
+    # Terminals are objects from which physicsobjects can be extracted into the machine.
+
+    # The rest of the objects could pretty much be abstracted to being called junctions. These junctions have connections, and it is your job
+    # To use junctions so that their connections are "valid". Objects will be sent between them regardless, but if their path is blocked that's on you.
+
+    # Connections are formed by specifying the "from" and "to" objects, as well as a "connection position".
+    # The object meets this connection position between the two objects, and it is the responsibility of both objects to move the object to
+    # a valid position for that effect to take place.
+
+    #I'll probably add some kind of pathfinding so that you can easily send objects between terminals
+
+    # Current object specifications:
+    #[
+
+    ###############################################################
+    Terminal Definitions:
+
+    Terminal extends Junction
+    {
+        "requestObject" : function string  # Function promises to return a physicsobject
+    }
+
+    function requestObject(Terminal:table, Input:table, Callback:string, CallbackInput:table)
+    {
+        Terminal is the object it is being called on. I guess I'm taking after python in this sense
+
+        Function promises to return a valid physicsobject at some time in the future
+
+        Input will be some table containing relevant information for the requested object
+        like a printer id for example
+
+        It calls the callback function after adding that physicsobject to the table.
+        Let the convention be this:
+            callbacks that return values store the value in CallbackInput["return",type]
+    }
+
+    ###############################################################
+    Junction definitions:
+
+    Junction
+    {
+        "receiveObject" : function string       # Function takes junction and handles an incomming object
+        "sendObject" : function string          # Function takes two junctions and moves an object within its space so that it can be received
+
+        "transferCallback" : function string    # Function is called when a transfer is finished.
+                                                #    That is, when sending an object, this function is called when the object has left the space
+
+        "receivePosition" : vector              # Should be included to determine where sendObject tries to send to
+    }
+
+
+    function sendObject(Sending:table, PhysicsObject:table, Position:vector, Input:table, Callback:string, CallbackInput:table)
+    {
+        Function promises that at the end of its execution, the object will be in a position where it can
+        be recieved by the next junction at Position.
+
+        Input will be some table containing relevant information for sending. I don't know how this can be used, but it will
+        probably be related to connection information
+
+        It calls the callback function after the physicsobject has been sent to the proper exit position
+        Traditional delaydo style.
+    }
+
+    function receiveObject(Receiving:table, PhysicsObject:table, Callback:string, CallbackInput:table)
+    {
+        Function promises that the object is handled by the junction so that it can be moved somewhere else.
+
+        Input will be some table containing relevant information for the receiving process
+
+        It calls the callback function after integrating said physicsobject
+    }
+
+    function transferCallback(Receiving:table, PhysicsObject:table, Callback:string, CallbackInput:table)
+    {
+        Function is called when
+
+        Input will be some table containing relevant information for the receiving process
+
+        It calls the callback function after adding that physicsobject to the table.
+    }
+
+    function vector2 holoDraw(Junction:table, HoloIndex) {
+        Draws this part as a hologram structure, returning the start and end indices
+
+    }
+
+    ###############################################################
+
+    Global functions:
+
+    function transferObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table)
+    {
+        Sends an object from one junction to another
+
+        Executes the callback function when completed
+    }
+
+
+    function transferAlongPath(Path:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table)
+    {
+        Same as above, but moves the physics object along a predetermined path of junctions
+    }
+
+    function vector2 table:holoDrawJunction(HoloIndex)
+    {
+        Executest that junction's specific draw function. Useful for debugging machines I imagine.
+
+        If there is no defined function, return vec2()
+        Else, return the created holo structure's begininng and end indices
+    }
+    ]#
+
+
+    function void transferObject( Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        local Table = MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table]
+        if(Table:count()<1){
+            Table:pushTable(table())
+            MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table] = Table
+
+            # init
+            MACHINECORE_PARENT_COMPONENT[PhysicsObject:id(), table] = table()
+        }
+
+
+        delayDo(
+            "transferObject_delay"
+            , table(
+                 "receiving" = Receiving , "physicsobject" = PhysicsObject, "input" = Input
+
+                , "event" = 1
+                , "callback_function" = Callback, "callback_input" = CallbackInput)
+            ,100
+        )
+    }
+
+    function void transferObjectAlongPath(Path:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table ){
+        local Table = MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table]
+        if(Table:count()<1){
+            Table:pushTable(table())
+            MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table] = Table
+
+            # init
+            MACHINECORE_PARENT_COMPONENT[PhysicsObject:id(), table] = table()
+        }
+
+        delayDo(
+            "transferObject_delay",
+            table(
+                 "receiving" = Path[1,table], "physicsobject" = PhysicsObject, "input" = Input
+                #, "sending" = Table[1,table]
+                , "event" = 1, "path" = Path, "i" = 1
+                , "callback_function" = Callback, "callback_input" = CallbackInput)
+            ,100
+        )
+    }
+
+    #[
+    function void transferObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        delayDo(
+            "transferObject_delay"
+            , table(
+                "sending" = Sending, "receiving" = Receiving, "physicsobject" = PhysicsObject, "input" = Input
+                , "event" = 1
+                , "callback_function" = Callback, "callback_input" = CallbackInput)
+            ,100
+        )
+    }
+
+    function transferAlongPath(Path:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        delayDo(
+            "transferObject_delay",
+            table(
+                "sending" = Path[1,table], "receiving" = Path[2,table], "physicsobject" = PhysicsObject, "input" = Input
+                , "event" = 1, "path" = Path, "i" = 2
+                , "callback_function" = Callback, "callback_input" = CallbackInput)
+            ,100
+        )
+    }
+
+    # Like above, but starts by having the first in Path recieve an object, instead of sending. This makes this function origin agnostic
+    function receiveAlongPath(Path:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        delayDo(
+            "transferObject_delay",
+            table(
+                 "receiving" = Path[1,table], "physicsobject" = PhysicsObject, "input" = Input
+                , "event" = 2, "path" = Path, "i" = 1
+                , "callback_function" = Callback, "callback_input" = CallbackInput)
+            ,100
+        )
+    }]#
+
+
+
+    function void transferObject_delay(Input:table){
+        local Event = Input["event",number]
+
+        #print"transferObject_delay ",Event," ", Input["receiving",table]:id())
+        switch(Event){
+            case 1, # Prepare object for sending. Includes recursive children components
+
+                local ParentStack = MACHINECORE_PARENT_COMPONENT[Input["physicsobject",table]:id(), table]
+                local PreviousStack = MACHINECORE_PREVIOUS_COMPONENT[Input["physicsobject",table]:id(), table]
+
+                local ReceivingParent = Input["receiving",table]["parent",table]
+
+                local PreviousK = PreviousStack:count()
+                #local Previous = PreviousStack[PreviousK,table] # Default to last entry
+
+                # Find the Previous object for the location in the stack where the parents are the same.
+                if(ReceivingParent){
+                    #print"Receivingparent existrs: ",ParentStack:count())
+                    foreach(K:number, Parent:table = ParentStack){
+                        if(Parent == ReceivingParent){
+                            #print"Found parent ",PreviousK," --------------")
+                            PreviousK = K
+
+                            break
+                        }
+                    }
+                }
+                local Previous = PreviousStack[PreviousK,table]
+
+                # Update entry on stack
+                PreviousStack[PreviousK,table] = Input["receiving",table]
+
+                Input["sending",table] = Previous
+                if(Previous){
+                    if(!Input["sending",table]["sendObject",string]){
+                        local Error = format("No sendObject function on %s with %d entries:\n",Input["sending",table]:id(), Input["sending",table]:count() )
+                        Error = format("%s%s\n",Error,Input["receiving",table]:keys():concat(", "))
+                        Error = format("%sPhysicsObject entity: %s\n",Error,Input["physicsobject",table]["entity",entity])
+                        Error = format("%sPrevious:%s\n",Error,Input["sending",table]:keys():concat(", "))
+                        printColor(vec(255,0,0),Error)
+                        error(Error)
+                    }
+
+                   Previous["sendObject",string](Previous,Input["receiving",table],Input["physicsobject",table],Input["input",table],"transferObject_delay",Input)
+                   break
+                } # Otherwise fall through
+
+
+                Event++
+            case 2, # Send object to new component
+                #print"receive ", Input["receiving",table]["receiveObject",string])
+                if(!Input["receiving",table]["receiveObject",string]){
+                    local Error = format("No receiveObject function on %s with %d entries:\n",Input["receiving",table]:id(), Input["receiving",table]:count() )
+                    Error = format("%s%s\n",Error,Input["receiving",table]:keys():concat(", "))
+                    Error = format("%sPhysicsObject entity: %s\n",Error,Input["physicsobject",table]["entity",entity])
+                    Error = format("%sPrevious:%s\n",Error,Input["sending",table]:keys():concat(", "))
+                    printColor(vec(255,0,0),Error)
+                    error(Error)
+                }
+                Input["receiving",table]["receiveObject",string](Input["receiving",table],Input["physicsobject",table],Input["input",table],"transferObject_delay",Input)
+            break
+            case 3,
+                # Call transfer callbacks on previous components. Includes recursive children
+
+                local Previous = Input["sending",table]
+                if(Previous["transferCallback",string]){ # transferCallback is called optionally
+                    Previous["transferCallback",string](Previous,Input["physicsobject",table],Input["input",table],"transferObject_delay",Input)
+                    break
+                } # Otherwise fall through
+
+            case 4,
+                Input["sending",table] = Input["receiving",table]
+
+                # Move onto next entry in the path
+                local Path = Input["path",table]
+                if (Path & Input["i",number] < Path:count()){
+                    local I = Input["i",number] + 1
+
+                    Input["receiving",table] = Path[I,table]
+
+                    Input["i",number] = I
+                    Input["event",number] = 1
+
+                    delayDo("transferObject_delay",Input,100)
+                } else {
+                    # Transfers are finished through delayDo, no function leak here
+                    delayDo(Input["callback_function",string],Input["callback_input",table],100)
+                }
+            default,
+            return
+        }
+        Input["event",number] = Event + 1
+    }
+
+    function vector2 table:holoDrawJunction(HoloIndex)
+    {
+        if(This["holoDraw",string]){
+            return This["holoDraw",string](This,HoloIndex)[vector2]
+        } else {
+            return vec2()
+        }
+    }
+
+    #####################################################################################################################################
+    # Helper methods for callbacks
+
+    function table sendObjectTable(Sending:table, Receiving:table, PhysicsObject:table,  Input:table, Callback:string, CallbackInput:table){
+        return delayDoTable(
+            "sendObject_callback"
+            ,table(
+                "sending" = Sending ,"receiving" = Receiving, "physicsobject" = PhysicsObject
+                ,"input" = Input
+                ,"callback_function" = Callback, "callback_input" = CallbackInput
+            )
+            ,10
+        )
+    }
+
+    function table receiveObjectTable(Receiving:table, PhysicsObject:table,  Input:table, Callback:string, CallbackInput:table){
+        return delayDoTable(
+            "receiveObject_callback"
+            ,table(
+                "receiving" = Receiving, "physicsobject" = PhysicsObject
+                ,"input" = Input
+                ,"callback_function" = Callback, "callback_input" = CallbackInput
+            )
+            ,10
+        )
+    }
+
+
+    function void sendObject_callback(Input:table){
+        local Sending = Input["sending",table]
+
+        Sending["sendObject",string](Sending, Input["receiving",table], Input["physicsobject",table], Input["input",table], Input["callback_function",string], Input["callback_input",table])
+    }
+
+    function void receiveObject_callback(Input:table){
+        local Receiving =  Input["receiving",table]
+        Receiving["receiveObject",string](Receiving, Input["physicsobject",table], Input["input",table], Input["callback_function",string], Input["callback_input",table])
+    }
+
+    #####################################################################################################################################
+    # Helper methods for creating nested components
+
+    #[
+        Within a component, create a new context for which a physicsobject can exist in
+    ]#
+    function void childComponent(ParentComponent:table , PhysicsObject:table){
+        # push new context to stack
+        #print("\tcreated child")
+        MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table]:insertTable(1, table())
+        MACHINECORE_PARENT_COMPONENT[PhysicsObject:id(), table]:insertTable(1,ParentComponent)
+    }
+
+    #[
+        Decouples a physics object from a child component.
+        When the callback returns, it would be as if it were somewhere within the parent object.
+    ]#
+    function void decoupleComponent(PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+
+        local Parent = MACHINECORE_PARENT_COMPONENT[PhysicsObject:id(), table]:removeTable(1)
+        local Child = MACHINECORE_PREVIOUS_COMPONENT[PhysicsObject:id(), table]:removeTable(1)
+        #print(" removed from ",Child:id())
+        if(Child["transferCallback",string]){
+            Child["transferCallback",string](Child,PhysicsObject,Input,Callback,CallbackInput)
+        }else{
+            delayDo(Callback,CallbackInput,0)
+        }
+    }
+
+    #[
+        Same as above, but configured to be used as a callback.
+    ]#
+    function void decoupleComponent_delay(Input:table) {
+        decoupleComponent(Input["physicsobject",table], Input["input",table], Input["callback_function",string], Input["callback_input",table])
+    }
+
+
+    #####################################################################################################################################
+    # Helper methods for blocking with transfer callback
+
+
+    function printDebug(Object:table, String:string){
+        local H = hash(Object:id())
+        printColor(vec(H&&0xFF, H>>8&&0xFF, H>>16&&0xFF), String)
+    }
+
+    function number handleBlock(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        if(Receiving["blocked",number]){
+            # When the item is eventually sent, the next item in the queue is allowed to enter
+            Receiving["transferHooks",table]:unshiftTable(
+                table(
+                     "receiving" = Receiving, "physicsobject" = PhysicsObject, "input" = Input
+                    , "callback_function" = Callback, "callback_input" = CallbackInput
+                )
+            )
+            return 0
+        } else {
+            Receiving["blocked",number] = 1
+            return 1
+        }
+    }
+
+
+
+    function void blockTransferCallback(Sending:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        Sending["blocked",number] = 0
+
+        #print("unblocked: ",Sending["receiveObject",string])
+        local ReceiveHook = Sending["transferHooks",table]:popTable()
+        if(ReceiveHook){
+            #printTable(ReceiveHook)
+            ReceiveHook["receiving",table]["receiveObject",string](
+                ReceiveHook["receiving",table],ReceiveHook["physicsobject",table],ReceiveHook["input",table]
+                ,ReceiveHook["callback_function",string],ReceiveHook["callback_input",table]
+            )
+        }
+
+        delayDo(Callback,CallbackInput,100)
+    }
+
+    # Use this function to prevent an entity from leaving this table until some other task has completed
+    function sendBlock(Sending:table, PhysicsObject:table, Blocked){
+        local Blocks = Sending["sendBlocks",table]
+        if(Blocked){
+            Blocks[PhysicsObject:id(),table] = table("valid"=0)
+        } else {
+            if(Blocks:exists(PhysicsObject:id())){
+                #print("sendUnblocked")
+
+                local E = Blocks[PhysicsObject:id(),table]
+                Blocks:unset(PhysicsObject:id())
+                if(E["valid",number]){
+                    #printDebug( PhysicsObject , "sendComplete: "+ E["sending",table]["sendObject",string])
+                    #printTable(E)
+                    E["sending",table]["sendObject",string](E["sending",table],E["receiving",table],PhysicsObject,E["input",table],E["callback_function",string],E["callback_input",table])
+                }
+            }
+        }
+        Sending["sendBlocks",table] = Blocks
+    }
+
+    # Helper methods for blocking through send
+    function number handleSendBlock(Sending:table, Receiving:table, PhysicsObject:table, Input:table,  Callback:string, CallbackInput:table){
+        local Blocks = Sending["sendBlocks",table]
+        if(Blocks:exists(PhysicsObject:id())){
+            #printDebug( PhysicsObject, "sendWritten: "+Receiving["receiveObject",string])
+
+            # Overwrite next send event
+            Sending["sendBlocks",table][PhysicsObject:id(),table] = table(
+                "valid" = 1
+                ,"sending" = Sending, "receiving" = Receiving, "physicsobject" = PhysicsObject
+                ,"input" = Input, "callback_function" = Callback, "callback_input" = CallbackInput
+            )
+            return 0
+        } else {
+            return 1
+        }
+
+    }
+
+    #####################################################################################################################################
+
+
+
+    #[  # # # # # # # # # # # # # #
+    Template
+
+
+
+    function table _new(Position:vector, Direction:vector) {
+
+        return table(
+             "receiveObject" = "_receiveObject"
+            ,"sendObject" = "_sendObject"
+            ,"transferCallback" = "blockTransferCallback"
+            ,"holoDraw" = "pointJunction_drawHolo"
+            ,"holoColor" = vec4(255,255,255,200)
+
+
+            ,"transferHooks" = table()
+        )# Table adding has priority for the first table's values
+    }
+
+    function _receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        if(handleBlock(Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+
+        }
+    }
+    function _sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        if(handleSendBlock(Sending, Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+
+        }
+    }
+
+
+    ]# # # # # # # # #  # # # #
+
+
+    #[
+        Holds a single object. Undefined behavior when adding more objects.
+    ]#
+    function table holdingTerminal_new(Position:vector) {
+        return table(
+             "receiveObject" = "holdingTerminal_receiveObject"
+            ,"sendObject" = "holdingTerminal_sendObject"
+            ,"requestObject" = "holdingTerminal_requestObject"
+
+            ,"position" = Position
+        )
+    }
+
+    function holdingTerminal_receiveObject(Receiving:table,PhysicsObject:table, Callback:string, CallbackInput:table) {
+        Receiving["held",table] = PhysicsObject
+        PhysicsObject:moveToward(Receiving["position",vector],0,300,Callback,CallbackInput)
+    }
+
+
+    function holdingTerminal_sendObject(Sending:table, Receiving:table, PhysicsObject:table,  Input:table, Callback:string, CallbackInput:table){
+        # Nothing needs to be done, the object is already in position
+        delayDo(Callback,CallbackInput,100)
+    }
+
+    function holdingTerminal_transferCallback(Sending:table, Receiving:table, PhysicsObject:table,  Input:table, Callback:string, CallbackInput:table){
+        # Nothing needs to be done, the object is already in position
+        delayDo(Callback,CallbackInput,100)
+    }
+
+    function holdingTerminal_requestObject(Terminal:table, Input:table, Callback:string, CallbackInput:table) {
+        # Return its held object
+        CallbackInput["return",table] = Terminal["held",table]
+        delayDo(Callback,CallbackInput,100)
+    }
+
+    #[
+        Holds up to a certain number of objects. LIFO extraction.
+
+    ]#
+    function table stackTerminal_new(Position:vector, Direction:vector, ObjectSize, MaxObjects) {
+        return table(
+             "receiveObject" = "stackTerminal_receiveObject"
+            ,"sendObject" = "stackTerminal_sendObject"
+            ,"requestObject" = "stackTerminal_requestObject"
+            ,"holoDraw" = "stackTerminal_drawHolo"
+
+            ,"position" = Position
+            ,"direction" = Direction
+            ,"size" = ObjectSize
+            ,"max" = MaxObjects
+            ,"held" = table() # This time held is an indexed structure
+        )
+    }
+
+    function vector stackTerminal_stackPosition(Terminal:table) {
+        return Terminal["position",vector]+Terminal["direction",vector]*Terminal["size",number]*(Terminal["max",number]-Terminal["held",table]:count())
+    }
+
+    function stackTerminal_receiveObject(Receiving:table,PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        Receiving["held",table]:pushTable(PhysicsObject)
+        PhysicsObject:moveAlongPath(array(Receiving["position",vector],stackTerminal_stackPosition(Receiving)),0,Input["acceleration",number],Callback,CallbackInput)
+    }
+
+
+    function stackTerminal_sendObject(Sending:table, Receiving:table, PhysicsObject:table,  Input:table, Callback:string, CallbackInput:table) {
+        PhysicsObject:moveToward(Sending["position",vector],0,Input["acceleration",number],Callback,CallbackInput)
+    }
+
+    function stackTerminal_requestObject(Terminal:table, Input:table, Callback:string, CallbackInput:table) {
+        CallbackInput["return",table] = Terminal["held",table]:popTable()
+        delayDo(Callback,CallbackInput,100)
+    }
+
+    function vector2 stackTerminal_drawHolo(Junction:table, HoloIndex){
+        HoloIndexStart = HoloIndex
+        holoCreate(HoloIndex
+            , Junction["position",vector]+Junction["direction",vector]*(Junction["max",number]-1)*Junction["size",number]/2
+            ,vec(Junction["size",number],Junction["size",number],Junction["max",number]*Junction["size",number])/12
+            ,Junction["direction",vector]:toAngle()-ang(90,0,0),vec4(255,200,0,100),"hqcylinder")
+        HoloIndex++
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),vec(255,50,0),"hqicosphere")
+        return vec2(HoloIndexStart,HoloIndex)
+    }
+
+    #[
+        A point junction is the simplest kind of connection. To receive objects, they are simply moved to its position
+
+
+
+    ]#
+
+    function table pointJunction_new(Position:vector) {
+        return table(
+             "receiveObject" = "pointJunction_receiveObject"
+            ,"sendObject" = "pointJunction_sendObject"
+            ,"holoDraw" = "pointJunction_drawHolo"
+
+            ,"position" = Position
+        )
+    }
+
+    function pointJunction_receiveObject(Receiving:table,PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        PhysicsObject:moveToward(Receiving["position",vector],0,Input["acceleration",number],Callback,CallbackInput)
+    }
+
+    function pointJunction_sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        #Nothing needs be done
+        delayDo(Callback,CallbackInput,10)
+    }
+
+    function vector2 pointJunction_drawHolo(Junction:table, HoloIndex){
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),Junction:exists("holoColor") ? Junction["holoColor",vector4] : vec4(255,255,255,200),"hqicosphere")
+        return vec2(HoloIndex)
+    }
+
+    #[
+        This junction will refuse to receive new objects before transfering the object that it already has.
+        In this way, it will "block" further movement
+
+        This will almost allways be better to use than the pointJunction, unless of course you can make garauntees about
+        the throughput of your system. Then you save marginal time and ops
+    ]#
+
+    function table blockingJunction_new(Position:vector) {
+
+        return table(
+             "receiveObject" = "blockingJunction_receiveObject"
+
+            ,"transferCallback" = "blockTransferCallback"
+            ,"transferHooks" = table()
+
+            ,"holoColor" = vec4(hsv2rgb(310,1,1), 200)
+
+        ):add(pointJunction_new(Position)) # Table adding has priority for the first table's values
+    }
+
+    function blockingJunction_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        if(handleBlock(Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+            PhysicsObject:moveToward(Receiving["position",vector],0,Input["acceleration",number],Callback,CallbackInput)
+        }
+    }
+
+
+    function table blockingElevator_new(Position:vector, Direction:vector) {
+
+        return table(
+             "receiveObject" = "blockingElevator_receiveObject"
+            ,"sendObject" = "blockingElevator_sendObject"
+            ,"transferCallback" = "blockTransferCallback"
+            ,"holoDraw" = "blockingElevator_drawHolo"
+            ,"holoColor" = vec4(255,255,255,200)
+
+
+            ,"transferHooks" = table()
+
+            ,"position" = Position
+            ,"direction" = Direction
+        )# Table adding has priority for the first table's values
+    }
+
+    function blockingElevator_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        if(handleBlock(Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+            local ThisPos = Receiving["position",vector]
+            local Direction = Receiving["direction",vector]
+            local Projected = ThisPos+Direction*Direction:dot(PhysicsObject["position",vector] - ThisPos)
+            PhysicsObject:moveToward(Projected,0,Input["acceleration",number],Callback,CallbackInput)
+        }
+    }
+    function blockingElevator_sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        local ThisPos = Sending["position",vector]
+        local Direction = Sending["direction",vector]
+        local Projected = ThisPos+Direction*Direction:dot(Receiving["position",vector] - ThisPos)
+        PhysicsObject:moveToward(Projected,0,Input["acceleration",number],Callback,CallbackInput)
+    }
+
+    function vector2 blockingElevator_drawHolo(Junction:table, HoloIndex){
+        local Color = Junction:exists("holoColor") ? Junction["holoColor",vector4] : vec4(255,255,255,200)
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),Junction["direction",vector]:toAngle()+ang(-90,0,0),Color,"hqcone")
+        #holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),vec(255,200,0),"hqicosphere")
+        return vec2(HoloIndex)
+    }
+
+    function table blockingPlane_new(Position:vector, Normal:vector) {
+
+        return table(
+             "receiveObject"  = "blockingPlane_receiveObject"
+            ,"sendObject" = "blockingPlane_sendObject"
+            ,"transferCallback" = "blockTransferCallback"
+
+            ,"holoDraw" = "pointJunction_drawHolo"
+            ,"holoColor" = vec4(255,255,255,200)
+
+            ,"transferHooks" = table()
+
+            ,"position" = Position
+            ,"normal" = Normal:normalized()
+
+        ) # Table adding has priority for the first table's values
+    }
+
+    function blockingPlane_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        #printDebug( PhysicsObject,"blockingPlane_receiveObject")
+
+        if(handleBlock(Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+            local V = PhysicsObject["position",vector]-Receiving["position",vector]
+            local Proj = V-V:dot(Receiving["normal",vector])*Receiving["normal",vector]
+            local Target = Receiving["position",vector]+Proj
+
+            PhysicsObject:moveToward(Target,0,Input["acceleration",number],Callback,CallbackInput)
+        }
+    }
+    function blockingPlane_sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        local V = Receiving["position",vector]-Sending["position",vector]
+        local Proj = V-V:dot(Sending["normal",vector])*Sending["normal",vector]
+        local Target = Sending["position",vector]+Proj
+
+        PhysicsObject:moveToward(Target,0,Input["acceleration",number],Callback,CallbackInput)
+    }
+
+    function vector2 blockingElevator_drawHolo(Junction:table, HoloIndex){
+        local Color = Junction:exists("holoColor") ? Junction["holoColor",vector4] : vec4(255,255,255,200)
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),Junction["direction",vector]:toAngle()+ang(-90,0,0),Color,"hqcone")
+        #holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),vec(255,200,0),"hqicosphere")
+        return vec2(HoloIndex)
+    }
+
+    #
+
+
+
+    #[
+        Starting position to end position, keeps items a certain distance from eachother as they travel. Works like a queue
+
+
+    ]#
+
+    function table queueTract_new(Positions:array, ObjectSize){
+
+        return table(
+             "receiveObject" = "queueTract_receiveObject"
+            ,"sendObject" = "queueTract_sendObject"
+            ,"transferCallback" = "queueTract_transferCallback"
+            ,"holoDraw" = "queueTract_drawHolo"
+
+            ,"path" = Positions
+            ,"position" = Positions[1,vector]
+            ,"size" = ObjectSize
+            #,"max" = floor(EndPos:distance(StartPos)/ObjectSize)
+
+
+            ,"sendBlocks" = table()
+
+            ,"queue_linked" = table()
+            ,"queue_tail" = table()
+            ,"queue_lookup" = table()
+        )
+    }
+
+
+    function queueTract_handleObject(Input:table){
+        if(Input["stuck",number]){
+            return
+        }
+
+        local Next = Input["next",table]
+        local Queue = Input["queue",table]
+        local DTotal =  Input["dist_total",number]
+        local DLocal =  Input["dist_local",number]
+        local PhysicsObject = Input["physicsobject",table]
+
+        local Elapsed = curtime()-Input["prev_time",number]
+
+        #print("queueTract_handleObject ",Input["state",string]," : ",Input["path_i",number])
+
+        switch(Input["state",string]){
+            case "receive",
+                if(Next & Next["dist_total",number] < Queue["size",number]){
+
+                    Input["stuck",number] = 1
+                    Next["update_prev",number] = 1
+                } else {
+                    Input["physicsobject",table]:moveToward(Queue["path",array][1,vector],0,Input["acceleration",number],"queueTract_handleObject", Input)
+                    Input["state",string] = "init"
+                }
+
+            break
+            case "init",
+                Input["prev_time",number] = curtime()
+
+                #printDebug(PhysicsObject, format("queueTract_handleObject init: %s",Input["callback",table]["function",string]))
+                delayDo(Input["callback",table])
+
+                delayDo("queueTract_handleObject",Input,100)
+
+                Input["state",string] = "follow"
+            break
+            case "follow",
+
+                # Distance traveled in time elapsed
+                local Distance = Elapsed*PhysicsObject["speed",number]/tickInterval()
+                # If it can't,
+                if(Next & Distance+DTotal > Next["dist_total",number]-Queue["size",number]){
+                    Distance = Next["dist_total",number]-Queue["size",number] - DTotal
+
+                    Input["stuck",number] = 1
+                    Next["update_prev",number] = 1
+                } else {
+                    delayDo("queueTract_handleObject",Input,50)
+                    if(Input["update_prev",number]){
+
+                        Input["update_prev",number] = 0
+                        Input["prev",table]["prev_time",number] = curtime()
+                        Input["prev",table]["stuck",number] = 0
+                        delayDo("queueTract_handleObject",Input["prev",table],200)
+                    }
+                }
+
+
+
+                local I = Input["path_i",number]
+                local A = Queue["path",array][I,vector]
+                local B = Queue["path",array][I+1,vector]
+                local DistanceSegment = B:distance(A)
+
+                if(DLocal + Distance > DistanceSegment){
+                    Distance = DistanceSegment - DLocal
+
+                    if(I + 1 < Queue["path",array]:count()){
+                        Input["dist_local",number] = 0
+                        Input["path_i",number] = I + 1
+                    }else {
+                        Input["state",string] = "end"
+                    }
+                } else {
+                    Input["dist_local",number] = (DLocal+Distance)
+                }
+
+                Input["dist_total",number] = (DTotal+Distance)
+                PhysicsObject:setPos(mix(B ,A, (DLocal+Distance) / DistanceSegment))
+
+                Input["prev_time",number] = curtime()
+            break
+            case "stuck",
+            break
+            case "end",
+                #printDebug( PhysicsObject, "end")
+                sendBlock(Queue,PhysicsObject,0)
+            break
+        }
+    }
+
+
+    function queueTract_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        local Handle = table(
+            "state" = "receive"
+            ,"dist_total" = 0
+            ,"dist_local" = 0
+            ,"path_i" = 1
+
+            ,"physicsobject" = PhysicsObject
+            ,"queue" = Receiving
+            ,"next" = Receiving["queue_tail",table]
+            ,"prev" = table()
+
+            ,"callback" = delayDoTable(Callback,CallbackInput ,10)
+        )
+
+        Receiving["queue_lookup",table][PhysicsObject:id(),table] = Handle
+
+        if(Receiving["queue_tail",table]){
+            Receiving["queue_tail",table]["prev",table] = Handle
+        }
+
+        Receiving["queue_tail",table] = Handle
+
+        sendBlock(Receiving,PhysicsObject,1)
+
+        delayDo("queueTract_handleObject",Handle,10)
+    }
+
+    function queueTract_sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        #printDebug( PhysicsObject, "sendObject: queueTract_sendObject")
+        if(handleSendBlock(Sending, Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+            # When it is unblocked, it will already be in the sent position
+            delayDo(Callback, CallbackInput, 10)
+        }
+    }
+
+    function queueTract_transferCallback(Sending:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        local Entry = Sending["queue_lookup",table][PhysicsObject:id(),table]
+
+        if(Entry["prev",table]){
+            Entry["prev",table]["next",table] = table()
+            if(Entry["update_prev",number]){
+                Entry["prev",table]["stuck",number] = 0
+                delayDo("queueTract_handleObject", Entry["prev",table], 10)
+            }
+        }else{
+            Sending["queue_tail",table] = table()
+        }
+
+        Sending["queue_lookup",table]:unset(PhysicsObject:id())
+
+        delayDo(Callback,CallbackInput,10)
+    }
+
+    function vector2 queueTract_drawHolo(Junction:table, HoloIndex){
+        local Path = Junction["path",array]
+        local I = HoloIndex
+        foreach(K,V:vector = Path){
+            local Ang = (Path[K+1,vector]-V):toAngle()+ang(90,0,0)
+            holoCreate(I,  V,vec(Junction["size",number]/12), Ang,Junction:exists("holoColor") ? Junction["holoColor",vector4] : vec4(255,255,255,200),"hqcone")
+            I++
+        }
+        holoModel(I-1,"hqicosphere")
+        holoAng(I-1,ang())
+
+        return vec2(HoloIndex,I-1)
+    }
+
+}

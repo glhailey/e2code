@@ -1,0 +1,166 @@
+@name holocore
+@inputs
+@outputs
+@persist HOLOCORE_MAXHOLOSIZE HOLOCORE_MAXHOLOSCALE
+@persist HOLOCORE_CUBEEDGES
+@trigger
+
+if(first()|duped()|dupefinished()){
+    HOLOCORE_MAXHOLOSCALE = 50
+    HOLOCORE_MAXHOLOSIZE = HOLOCORE_MAXHOLOSCALE*12
+
+    function vector2 holoLine(HoloIStart, Start:vector, End:vector, Width, Color:vector4) {
+        local Offset = End-Start
+        local Dir = Offset:normalized()
+
+        local Lengths = Offset:length()/600
+        local HoloFull = floor(Lengths)
+
+        local HoloI = HoloIStart
+
+        local HoloWidth = Width/12
+
+        local Ang = Dir:toAngle()
+
+        for(I=0,HoloFull-1) {
+            holoCreate(HoloI,Start+Dir*(0.5+I)*600,vec(50,HoloWidth,HoloWidth),Ang,Color)
+            HoloI++
+        }
+        local Remaining = Offset:length()-(HoloFull)*600
+        holoCreate(HoloI,Start+Dir*((HoloFull)*600+Remaining/2),vec(Remaining/12,HoloWidth,HoloWidth),Ang,Color)
+
+        return vec2(HoloIStart,HoloI)
+    }
+
+    function vector2 holoLineFlat(HoloIStart, Start:vector, End:vector, Width, Color:vector4) {
+        local Offset = End-Start
+        local Dir = Offset:normalized()
+
+        local Lengths = Offset:length()/600
+        local HoloFull = floor(Lengths)
+
+        local HoloI = HoloIStart
+
+        local HoloWidth = Width/12
+
+        local Ang = Dir:toAngle()
+
+        for(I=0,HoloFull-1) {
+            holoCreate(HoloI,Start+Dir*(0.5+I)*600,vec(50,HoloWidth,HoloWidth),Ang,Color,"plane")
+            HoloI++
+        }
+        local Remaining = Offset:length()-(HoloFull)*600
+        holoCreate(HoloI,Start+Dir*((HoloFull)*600+Remaining/2),vec(Remaining/12,HoloWidth,HoloWidth),Ang,Color,"plane")
+
+        return vec2(HoloIStart,HoloI)
+    }
+
+    function vector2 holoLineRound(HoloIStart, Start:vector, End:vector, Width, Color:vector4) {
+        local Offset = End-Start
+        local Dir = Offset:normalized()
+
+        local Lengths = Offset:length()/600
+        local HoloFull = floor(Lengths)
+
+        local HoloI = HoloIStart
+
+        local HoloWidth = Width/12
+
+        local Ang = Dir:toAngle()+ang(90,0,0)
+
+        for(I=0,HoloFull-1) {
+            holoCreate(HoloI,Start+Dir*(0.5+I)*600,vec(HoloWidth,HoloWidth,50),Ang,Color,"hqcylinder")
+            HoloI++
+        }
+        local Remaining = Offset:length()-(HoloFull)*600
+        holoCreate(HoloI,Start+Dir*((HoloFull)*600+Remaining/2),vec(HoloWidth,HoloWidth,Remaining/12),Ang,Color,"hqcylinder")
+
+        return vec2(HoloIStart,HoloI)
+    }
+
+    # Please pass this function normalized vectors
+    function vector2 holoPlane(HoloIStart, Origin:vector, Normal:vector, Forward:vector, Size:vector2, Color:vector) {
+        local HoloI = HoloIStart
+
+        local Forward = (Forward-Normal*(Forward:dot(Normal))):normalized()
+        local Horiz = Forward:cross(Normal)
+
+        local OriginCorner = Origin-Forward*Size:x()/2-Horiz*Size:y()/2
+        local Angle = Forward:toAngle()
+
+        local SizeFull = floor(Size/HOLOCORE_MAXHOLOSIZE)
+        local SizeRemaining = Size-SizeFull*HOLOCORE_MAXHOLOSIZE
+
+
+        local Matrix = matrix(Forward,Horiz,Normal)
+        local Ang = Matrix:toAngle()
+
+        for(X=0,SizeFull:x()-1){
+            for(Y=0,SizeFull:y()-1){
+                holoCreate(HoloI,OriginCorner+Matrix*vec(0.5+X,0.5+Y,0)*HOLOCORE_MAXHOLOSIZE,vec(HOLOCORE_MAXHOLOSCALE,HOLOCORE_MAXHOLOSCALE,1),Ang,Color,"plane")
+                holoColor(HoloI,vec(255,255,0))
+                HoloI++
+            }
+            holoCreate(HoloI,OriginCorner+Matrix*vec((0.5+X)*HOLOCORE_MAXHOLOSIZE,((SizeFull*HOLOCORE_MAXHOLOSIZE+SizeRemaining/2)):y(),0),vec(HOLOCORE_MAXHOLOSCALE,SizeRemaining:y()/12,1),Ang,Color,"plane")
+            holoColor(HoloI,vec(0,255,0))
+            HoloI++
+        }
+        for(Y=0,SizeFull:y()-1){
+            holoCreate(HoloI,OriginCorner+Matrix*vec(((SizeFull*HOLOCORE_MAXHOLOSIZE+SizeRemaining/2)):x(),(0.5+Y)*HOLOCORE_MAXHOLOSIZE ,0),vec(SizeRemaining:x()/12,HOLOCORE_MAXHOLOSCALE,1),Ang,Color,"plane")
+            holoColor(HoloI,vec(255,0,0))
+            HoloI++
+        }
+        holoCreate(HoloI,OriginCorner+Matrix*vec(SizeFull*HOLOCORE_MAXHOLOSIZE+SizeRemaining/2,0),vec(SizeRemaining/12,1),Ang,Color,"plane")
+        holoColor(HoloI,vec(255,0,0))
+
+        return vec2(HoloIStart,HoloI)
+    }
+
+    function holoCubeOutline(HoloIStart, Origin:vector, Forward:vector, Up:vector, Thickness, Size:vector, Color:vector4){
+        local HoloI = HoloIStart
+
+        local Forward = (Forward-Up*Forward:dot(Up)):normalized()
+        local Horiz = Up:cross(Forward)
+
+        Size = Size-vec(Thickness)
+        local Matrix = matrix(Forward*Size:x(),Horiz*Size:y(),Up*(Size:z()))
+        local CornerOrigin = Origin+Matrix*vec(-0.5)
+        local CornerOriginPlusZ = Origin+Matrix*vec(-0.5)+vec(0,0,Thickness/2)
+        local CornerOriginMinusZ = Origin+Matrix*vec(-0.5)+vec(0,0,-Thickness/2)
+
+        V = holoLineRound(HoloI,CornerOriginPlusZ+Matrix*vec(),CornerOriginPlusZ+Matrix*vec(1,0,0),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOriginPlusZ+Matrix*vec(),CornerOriginPlusZ+Matrix*vec(0,1,0),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOrigin+Matrix*vec(),CornerOrigin+Matrix*vec(0,0,1),Thickness,vec4(255))
+
+        V = holoLineRound(V:y()+1,CornerOriginMinusZ+Matrix*vec(1),CornerOriginMinusZ+Matrix*vec(0,1,1),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOriginMinusZ+Matrix*vec(1),CornerOriginMinusZ+Matrix*vec(1,0,1),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOrigin+Matrix*vec(1),CornerOrigin+Matrix*vec(1,1,0),Thickness,vec4(255))
+
+        V = holoLineRound(V:y()+1,CornerOrigin+Matrix*vec(1,0,0),CornerOrigin+Matrix*vec(1,0,1),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOriginPlusZ+Matrix*vec(1,0,0),CornerOriginPlusZ+Matrix*vec(1,1,0),Thickness,vec4(255))
+
+        V = holoLineRound(V:y()+1,CornerOriginPlusZ+Matrix*vec(0,1,0),CornerOriginPlusZ+Matrix*vec(1,1,0),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOrigin+Matrix*vec(0,1,0),CornerOrigin+Matrix*vec(0,1,1),Thickness,vec4(255))
+
+        V = holoLineRound(V:y()+1,CornerOriginMinusZ+Matrix*vec(0,0,1),CornerOriginMinusZ+Matrix*vec(1,0,1),Thickness,vec4(255))
+        V = holoLineRound(V:y()+1,CornerOriginMinusZ+Matrix*vec(0,0,1),CornerOriginMinusZ+Matrix*vec(0,1,1),Thickness,vec4(255))
+    }
+
+    if(entity():getName()=="holocore"){
+        local Pos1 = entity():pos()
+        local Pos2 = owner():pos()
+        #holoLine(1,Pos1,Pos2,10,vec4(0,0,0,255))
+        Pos1+=10 Pos2+=10
+
+        #holoLineFlat(3,Pos1,Pos2,10,vec4(0,100,0,255))
+        Pos1+=10 Pos2+=10
+
+        #holoLineRound(10,Pos1,Pos2,10,vec4(0,100,0,255))
+
+        local V = holoPlane(1000,owner():pos(),vec(0,0,1),vec(1,0,0):normalized(),vec2(10,12),vec(255))
+        local V = holoPlane(2000,owner():pos()+vec(20),vec(1,0,1):normalized(),vec(-1,6,0):normalized(),vec2(10,12),vec(255))
+        local V = holoPlane(3000,owner():pos()+vec(100),vec(0,0,-1),owner():forward(),vec2(10,12),vec(255))
+        holoCubeOutline(100,owner():pos(),owner():eye(),owner():eyeAngles():up(),2,vec(1000,100,100),vec4(255))
+    }
+
+}

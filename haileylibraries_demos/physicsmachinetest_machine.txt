@@ -1,0 +1,252 @@
+@name Machine Test
+@inputs [A, B]:entity
+@persist [StackTerminalA, Junction, StackTerminalB, R1, R2, Queue]:table
+@persist [POA, POB]:table EVENT FirstObject:table
+@outputs OA OB OSA:string OSB:string
+
+if(first()){
+    # If you can get this test to work, you're a genius
+    # Don't bother trying to learn this syntax, this library is DEPRECATED
+
+    #include "haileylibraries/physicsmachine"
+    #include "haileylibraries/machinecore"
+
+
+
+    function table rotationComponent_new(Position:vector) {
+        return table(
+             "receiveObject" = "rotationComponent_receiveObject"
+            ,"holoDraw" = "blockingJunction_drawHolo"
+
+            ,"transferHooks" = table()
+
+        ):add(pointJunction_new(Position)) # Table adding has priority for the first table's values
+    }
+
+
+    function rotationComponent_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table) {
+        PhysicsObject:moveToward(Receiving["position",vector],0,300,
+            "rotationComponent_rotate",table("physicsobject" = PhysicsObject
+                ,"callback" = delayDoTable(Callback, CallbackInput, 100)))
+    }
+    function rotationComponent_rotate(Input:table){
+        Input["physicsobject",table]:rotateTo(ang(randvec(0,360)),100, "delayDo", Input["callback",table])
+    }
+
+    function table childComponentTest_new(Position:vector) {
+        local Component =  table(
+             "receiveObject" = "childComponentTest_receiveObject"
+            ,"sendObject" = "childComponentTest_sendObject"
+            ,"transferCallback" = "blockTransferCallback"
+            ,"transferHooks" = table()
+
+            ,"holoDraw" = "childComponentTest_drawHolo"
+
+        ):add(pointJunction_new(Position)) # Table adding has priority for the first table's values
+
+        local J = pointJunction_new(Position):add(table("parent" = Component))
+        local R = rotationComponent_new(Position + vec(0,0,50)):add(table("parent" = Component))
+
+        Component["junction",table] = J
+        Component["rotation",table] = R
+
+        return Component
+    }
+
+    function childComponentTest_receiveObject(Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        if(handleBlock(Receiving, PhysicsObject, Input, Callback, CallbackInput)){
+            childComponent(Receiving, PhysicsObject)
+            print("childComponentTest_receiveObject ",Receiving["junction",table]["parent",table]:id()," ",Receiving["rotation",table]["parent",table]:id() )
+            transferObjectAlongPath(table(Receiving["junction",table], Receiving["rotation",table]), PhysicsObject, Input, Callback, CallbackInput)
+        }
+    }
+
+    function childComponentTest_sendObject_delay(Input:table){
+
+        local Event = Input["event",number]
+        print("childComponentTest_sendObject_delay ",Event)
+        switch(Event){
+            case 0,
+                #delayDo("childComponentTest_sendObject_delay",Input, 1000)
+                #printTable(Input["sending",table]["junction",table])
+                Input["event",number] = Event + 1
+                #printTable(Input["physicsobject",table])
+                #printTable(MACHINECORE_PREVIOUS_COMPONENT[Input["physicsobject",table]:id(),table])
+                #printTable(Input["sending",table]["junction",table])
+
+                transferObject(Input["sending",table]["junction",table], Input["physicsobject",table], Input["input",table], "childComponentTest_sendObject_delay", Input)
+            break
+            case 1,
+                print("Decoupled!!!\n\\=======\n========")
+                decoupleComponent(Input["physicsobject",table], Input["input",table], "delayDo", Input["callback",table])
+            default,
+            return
+        }
+
+    }
+
+    function childComponentTest_sendObject(Sending:table, Receiving:table, PhysicsObject:table, Input:table, Callback:string, CallbackInput:table){
+        print("childComponentTest_sendObject ------------------------------------------------")
+        childComponentTest_sendObject_delay(table(
+            "sending" = Sending, "receiving" = Receiving, "physicsobject" = PhysicsObject,
+            "input" = Input,
+            "callback" = delayDoTable(Callback, CallbackInput, 100)
+        ))
+
+    }
+
+    function vector2 childComponentTest_drawHolo(Junction:table, HoloIndex)  {
+
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),vec(0,200,255),"hqicosphere")
+        holoCreate(HoloIndex+1, Junction["rotation",table]["position",vector],vec(1),ang(),vec(0,100,255),"hqicosphere")
+        return vec2(HoloIndex, HoloIndex+1)
+    }
+
+
+    function vector2 blockingJunction_drawHolo(Junction:table, HoloIndex){
+        holoCreate(HoloIndex, Junction["position",vector],vec(1),ang(),vec(255,200,0),"hqicosphere")
+        return vec2(HoloIndex)
+    }
+
+    POA = A:toPhysicsObject()
+    POB = B:toPhysicsObject()
+    addPhysicsObject(POA)
+    addPhysicsObject(POB)
+
+    StackTerminalA = stackTerminal_new(entity():toWorld(vec(0,0,48)),vec(0,0,1),48,2)
+    StackTerminalB = stackTerminal_new(entity():toWorld(vec(200,0,48)),vec(0,0,1),48,2)
+    Junction = blockingJunction_new(entity():toWorld(vec(50,0,48)))
+    R1 = childComponentTest_new(entity():toWorld(vec(100,0,48)))
+    R2 = childComponentTest_new(entity():toWorld(vec(150,0,48)))
+
+    Queue = queueTract_new(array(entity():toWorld(vec(200,50,48)),entity():toWorld(vec(250,50,48)),entity():toWorld(vec(250,0,48))),36)
+
+    HoloIndex = 1
+    foreach(K:number, J:table = table(StackTerminalA,StackTerminalB,Junction, R1, R2, Queue)){
+        local I = J:holoDrawJunction(HoloIndex)
+        if(I) {
+            HoloIndex = I:y()+1
+        }
+    }
+
+    runOnTick(1)
+
+    interval(2000)
+
+
+
+} elseif(clk()) {
+
+
+    function sendToB(Input:table){
+        transferObjectAlongPath(table(Junction, R1, R2, StackTerminalB),Input["return",table],table(),"printTable",table("B"))
+    }
+    function sendToM(Input:table){
+        transferObjectAlongPath(table(Junction),Input["return",table],table(),"printTable",table("M"))
+    }
+    function sendToA(Input:table){
+        transferObjectAlongPath(table(Junction,StackTerminalB),Input["return",table],table(),"printTable",table("A"))
+    }
+
+    #printTable(MACHINECORE_PREVIOUS_COMPONENT)
+
+    switch(EVENT){
+        case 0,
+            transferObject(StackTerminalA, POA, table(),"printTable",table(1))
+            #StackTerminalA["receiveObject",string](,POA,)
+            interval(2000)
+
+            break
+        case 1,
+            transferObject(StackTerminalA, POB, table(),"printTable",table(2))
+            #StackTerminalA["receiveObject",string](StackTerminalA,POB,table(),"printTable",MACHINECORE_PREVIOUS_COMPONENT)
+            interval(2000)
+
+            break
+        case 2,
+        interval(0)
+
+            #StackTerminalA["requestObject",string](StackTerminalA,table(),"sendToM",table())
+
+
+        break
+        case 3,
+        interval(0)
+
+            #StackTerminalA["requestObject",string](StackTerminalA,table(),"sendToB",table())
+
+        break
+        case 4,
+        interval(6000)
+
+            print("=\n\n\n\n\n\n\n=============================")
+            transferObjectAlongPath(table(Queue),POB,table(),"printTable",table("B"))
+
+
+        break
+        case 5,
+        interval(6000)
+
+            print("=\n\n\n\n\n\n\n=============================")
+            #transferObjectAlongPath(table( R2, StackTerminalB),POB,table(),"printTable",table("B"))
+            transferObjectAlongPath(table(Queue),POA,table(),"printTable",table("B"))
+
+        break
+        case 6,
+             interval(6000)
+
+            #transferObject(Queue,POA,table(),"",table())
+            #transferObject(Queue,POB,table(),"",table())
+        break
+        case 7,
+            print("f")
+            transferObject(StackTerminalB,POB,table(),"",table())
+            transferObject(StackTerminalB,POA,table(),"",table())
+        break
+#[            StackTerminalA["requestObject",string](StackTerminalA,table(),"a",table())
+
+            function a(Input:table) {
+                printTable(Input)
+                StackTerminalA["sendObject",string](StackTerminalA,Input["return",table],Junction,table(),"b",Input)
+            }
+            function b(Input:table) {
+                print("b")
+                #printTable(Input)
+                Junction["receiveObject",string](Junction,Input["return",table],table(),"c",Input)
+            }
+            function c(Input:table) {
+                 print("c")
+                #printTable(Input)
+                Junction["sendObject",string](Junction,Input["return",table],StackTerminalB,table(),"d",Input)
+            }
+            function d(Input:table) {
+                 print("d")
+                printTable(Input)
+                StackTerminalB["receiveObject",string](StackTerminalB,Input["return",table],table(),"printTable",table(3))
+            }
+            interval(7000)
+
+            if(StackTerminalA["held",table]:count()){
+                EVENT--
+            }]#
+        default,
+
+    }
+    EVENT = EVENT+1
+
+
+} elseif(tickClk()) {
+    handlePhysicsObjects()
+} else {
+    handleDelayDo()
+}
+
+OA = MACHINECORE_PREVIOUS_COMPONENT[POB:id(),table]:count()
+OSA = ""
+foreach(K:number, E:table = MACHINECORE_PREVIOUS_COMPONENT[POB:id(),table]){
+    OSA += E:id() + "\n"
+}
+OSB = ""
+foreach(K:number, E:table = MACHINECORE_PARENT_COMPONENT[POB:id(),table]){
+    OSB += E:id() + "\n"
+}

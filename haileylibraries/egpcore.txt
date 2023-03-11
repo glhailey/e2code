@@ -1,0 +1,895 @@
+# Save as haileylibraries/egpcore
+@name egpcore
+@persist EGPCORE_BUTTONS:table EGPCORE_HOVER_BUTTONS:table EGPCORE_BUTTON_ABSOLUTE EGPCORE_BUTTON_OBJECT
+@persist EGPCORE_EGPOBJECTS:table EGPCORE_EGPQUEUE:table EGPCORE_TRANSFORMATIONLOOKUP:table
+
+if(first()||duped()||dupefinished()){
+    EGPCORE_BUTTON_ABSOLUTE = 1
+    EGPCORE_BUTTON_OBJECT = 0
+    EGPCORE_BUTTONS = table()
+    EGPCORE_TRANSFORMATIONLOOKUP = table( # Dynamically adds used angles
+         0 = identity2()
+        ,90 = matrix2(0,1,-1,0)
+        ,180 = matrix2(-1,0,0,-1)
+        ,270 = matrix2(0,-1,1,0)
+    )
+
+    function egpClearButtons(){
+        EGPCORE_BUTTONS = table()
+    }
+    function wirelink:egpAddButtonPosition(ButtonName:string, ButtonPosition:vector2, ButtonScale:vector2, ButtonCallbackFunction:string,ButtonHoverFunction:string, ButtonUnhoverFunction:string,  Data:table){
+        local ButtonObject = table(
+            "name" = ButtonName
+            ,"type" = EGPCORE_BUTTON_ABSOLUTE
+            ,"position" = ButtonPosition
+            ,"size" = ButtonScale
+            ,"function_press" = ButtonCallbackFunction
+            ,"function_hover" = ButtonHoverFunction
+            ,"function_unhover" = ButtonUnhoverFunction
+            ,"data" = Data
+        )
+
+        local Id = This:entity():id()
+        local HoverButtons = EGPCORE_HOVER_BUTTONS[Id,table]
+        local Buttons = EGPCORE_BUTTONS[Id,table]
+        if(!Buttons) {
+            Buttons = table()
+            EGPCORE_BUTTONS[Id,table]=Buttons
+            HoverButtons=table()
+            EGPCORE_HOVER_BUTTONS[Id,table]=HoverButtons
+        }
+
+        if(ButtonHoverFunction|ButtonUnhoverFunction){
+            HoverButtons[ButtonName,table] = ButtonObject
+        }
+        Buttons[ButtonName,table] = ButtonObject
+    }
+    function wirelink:egpAddButtonPosition(ButtonName:string, ButtonPosition:vector2, ButtonScale:vector2, ButtonCallbackFunction:string, Data:table){
+        This:egpAddButtonPosition(ButtonName, ButtonPosition, ButtonScale, ButtonCallbackFunction,"","",Data)
+    }
+
+    function wirelink:egpAddButtonObject(ButtonName:string, ButtonEGPObject:number, ButtonCallbackFunction:string, ButtonHoverFunction:string, ButtonUnhoverFunction:string, Data:table){
+        local ButtonObject = table(
+            "name" = ButtonName
+            ,"type" = "object"
+            ,"object" =  ButtonEGPObject
+            ,"function_press" = ButtonCallbackFunction
+            ,"function_hover" = ButtonHoverFunction
+            ,"function_unhover" = ButtonUnhoverFunction
+            ,"data" = Data
+        )
+        local Id = This:entity():id()
+        local HoverButtons = EGPCORE_HOVER_BUTTONS[Id,table]
+        local Buttons = EGPCORE_BUTTONS[Id,table]
+        if(!Buttons) {
+            Buttons = table()
+            EGPCORE_BUTTONS[Id,table]=Buttons
+            HoverButtons=table()
+            EGPCORE_HOVER_BUTTONS[Id,table]=HoverButtons
+        }
+
+        if(ButtonHoverFunction){
+            HoverButtons[ButtonName,table] = ButtonObject
+        }
+        Buttons[ButtonName,table] = ButtonObject
+    }
+
+    function wirelink:egpRemoveButton(ButtonName:string){
+        local Id = This:entity():id()
+        EGPCORE_BUTTONS[Id,table]:removeTable(ButtonName)
+        EGPCORE_HOVER_BUTTONS[Id,table]:removeTable(ButtonName)
+    }
+
+    function wirelink:handleEgpButtonPress(Position:vector2,PressEvent:table){
+        local Buttons = EGPCORE_BUTTONS[This:entity():id(),table]
+        foreach(K,Button:table = Buttons){
+            if(Button["type",number]==EGPCORE_BUTTON_ABSOLUTE){
+                local RelVec = (Button["position",vector2]-Position)/Button["size",vector2]
+                if(RelVec:x()<0.5&RelVec:y()<0.5){
+                    Button["function_press",string](PressEvent,Button["data",table])
+                }
+            }elseif(This:egpObjectContainsPoint(Button["object",number],Position)){
+                Button["function_press",string](PressEvent,Button["data",table])
+            }
+        }
+    }
+
+    function wirelink:handleEgpButtonHover(HoverVectors:array){
+        local Buttons = EGPCORE_HOVER_BUTTONS[This:entity():id(),table]
+
+        local NewHover = table()
+        foreach(K,Vec:vector2 = HoverVectors){
+            local X = Vec:x()
+            local Y = Vec:y()
+
+            foreach(K,Button:table = Buttons){
+                if(!NewHover[K,number]){
+                    if(Button["type",number]==EGPCORE_BUTTON_ABSOLUTE){
+                        local RelVec = (Button["position",vector2]-Vec)/Button["size",vector2]
+                        if(RelVec:x()<0.5&RelVec:y()<0.5){
+                            NewHover[K,number] = 1
+                        }
+                    }elseif(This:egpObjectContainsPoint(Button["object",number],Vec)){
+                            NewHover[K,number] = 1
+                    }
+                }
+            }
+
+        }
+        foreach(K,Button:table=Buttons){
+            if(NewHover[K,number]!=Button["prevHover",number]){
+                if(NewHover[K,number] & Button["function_hover",string]){
+                        Button["function_hover",string](Button["data",table])
+                }elseif(Button["function_unhover",string]){
+                    Button["function_unhover",string](Button["data",table])
+                }
+                Button["prevHover",number]=NewHover[K,number]
+            }
+        }
+    }
+
+    function table getEgpVingette(Position:vector2, Size:vector2, GradientSize, Color:vector4){
+        local Color3 = vec(Color)
+        local Alpha = Color:w()
+        local HalfPosX = vec2((Size:x()-GradientSize)/2,0)
+        local HalfPosY = vec2(0,(Size:y()-GradientSize)/2)
+        return table(
+            "simpleObjects" = table(
+                "top" = table(
+                    "type"="egpBox"
+                    ,"position"=-HalfPosY
+                    ,"size"=vec2(Size:x(),GradientSize)
+                    ,"color" = vec(Color)
+                    ,"alpha" = Alpha
+                    ,"material" = "gui/gradient_down"
+                )
+                ,"bottom" = table(
+                    "type"="egpBox"
+                    ,"position"=HalfPosY
+                    ,"size"=vec2(Size:x(),GradientSize)
+                    ,"color" = vec(Color)
+                    ,"alpha" = Alpha
+                    ,"material" = "gui/gradient_up"
+                )
+                ,"right" = table(
+                    "type"="egpBox"
+                    ,"position"=HalfPosX
+                    ,"size"=vec2(GradientSize,Size:y())
+                    ,"angle"=180
+                    ,"color" = vec(Color)
+                    ,"alpha" = Alpha
+                    ,"material" = "gui/gradient"
+                )
+                ,"left" = table(
+                    "type"="egpBox"
+                    ,"position"=-HalfPosX
+                    ,"size"=vec2(GradientSize,Size:y())
+                    ,"color" = vec(Color)
+                    ,"alpha" = Alpha
+                    ,"material" = "gui/gradient"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                 1 = "top"
+                ,2 = "right"
+                ,3 = "bottom"
+                ,4 = "left"
+            )
+
+            ,"origin" = Position
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+
+
+    function table getEgpButton(Pos:vector2,Size:vector2,Border:number,Text:string,TextSize:number){
+        Size = Size-floor(vec2(Border))
+        return table(
+            "simpleObjects" = table(
+                "body" = table(
+                    "type"="egpBox"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"color" = vec(255)
+
+                    ,"parent" = "outline"
+                )
+                ,"outline" = table(
+                    "type"="egpBoxOutline"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"sizenum"=Border
+                    ,"color" = vec(10)
+                )
+                ,"text" = table(
+                    "type"="egpText"
+                    ,"position"=vec2()
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(0)
+
+                    ,"parent" = "outline"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                1 = "body"
+                ,2 = "outline"
+                ,3 = "text"
+            )
+
+            ,"origin" = Pos
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+
+    function table getEgpFancyButton(Pos:vector2,Size:vector2,Border:number,Text:string,TextSize:number){
+        Size = Size-floor(vec2(Border))
+        return table(
+            "simpleObjects" = table(
+                "body" = table(
+                    "type"="egpBox"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"color" = vec(255)
+
+                    ,"parent" = "outline"
+                )
+                ,"gradient" = table(
+                    "type"="egpBox"
+                    ,"position"=vec2()
+                    ,"size" = shift(Size)
+                    ,"angle" = 270
+                    ,"color" = vec(255)
+                    ,"alpha" = 50
+                    ,"material" = "gui/center_gradient"
+
+                    ,"parent" = "outline"
+                )
+                ,"outline" = table(
+                    "type"="egpBoxOutline"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"sizenum"=Border
+                    ,"color" = vec(10)
+                )
+                ,"text" = table(
+                    "type"="egpText"
+                    ,"position"=vec2()
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(0)
+
+                    ,"parent" = "outline"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                1 = "body"
+                ,2 = "gradient"
+                ,3 = "outline"
+                ,4 = "text"
+            )
+
+            ,"origin" = Pos
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+
+    function table getEgpRoundButton(Pos:vector2,Size:vector2,Border:number,Radius,Text:string,TextSize:number){
+        Size = Size-floor(vec2(Border))
+        return table(
+            "simpleObjects" = table(
+                "body" = table(
+                    "type"="egpRoundedBox"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"radius" = Radius
+                    ,"color" = vec(255)
+
+                    ,"parent" = "outline"
+                )
+                ,"outline" = table(
+                    "type"="egpRoundedBoxOutline"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"sizenum"=Border
+                    ,"radius" = Radius
+                    ,"color" = vec(10)
+                )
+                ,"text" = table(
+                    "type"="egpText"
+                    ,"position"=vec2()
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(0)
+
+                    ,"parent" = "outline"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                1 = "body"
+                ,2 = "outline"
+                ,3 = "text"
+            )
+
+            ,"origin" = Pos
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+
+    function table getEgpFancyRoundedButton(Pos:vector2,Size:vector2,Border:number,Radius:number,Text:string,TextSize:number){
+        Size = Size-floor(vec2(Border))
+        return table(
+            "simpleObjects" = table(
+                "body" = table(
+                    "type"="egpRoundedBox"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"radius" = Radius
+                    ,"color" = vec(255)
+
+                    ,"parent" = "outline"
+                )
+                ,"gradient" = table(
+                    "type"="egpRoundedBox"
+                    ,"position"=vec2()
+                    ,"size" = shift(Size)
+                    ,"radius" = Radius
+                    ,"angle" = 270
+                    ,"color" = vec(255)
+                    ,"alpha" = 50
+                    ,"material" = "gui/center_gradient"
+
+                    ,"parent" = "outline"
+                )
+                ,"outline" = table(
+                    "type"="egpRoundedBoxOutline"
+                    ,"position"=vec2()
+                    ,"size"=Size
+                    ,"radius" = Radius
+                    ,"sizenum"=Border
+                    ,"color" = vec(10)
+                )
+                ,"text" = table(
+                    "type"="egpText"
+                    ,"position"=vec2()
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(0)
+
+                    ,"parent" = "outline"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                1 = "body"
+                ,2 = "gradient"
+                ,3 = "outline"
+                ,4 = "text"
+            )
+
+            ,"origin" = Pos
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+
+    function table getEgpShadedText(Position:vector2,Text:string,TextSize:number,Offset:vector2){
+        return table(
+            "simpleObjects" = table(
+                "text" = table(
+                    "type"="egpText"
+                    ,"position"=vec2()
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(255)
+
+                    ,"parent" = "outline"
+                )
+                ,"shadow_text" = table(
+                    "type"="egpText"
+                    ,"position"=Offset
+                    ,"sizenum"=TextSize
+                    ,"align"=vec2(1,1)
+                    ,"text"=Text
+                    ,"color" = vec(100)
+
+                    ,"parent" = "outline"
+                )
+            )
+            ,"simpleObjectOrder" = array(
+                "shadow_text"
+                ,"text"
+            )
+
+            ,"origin" = Position
+            ,"angle" = 0
+            ,"scale" = 1
+        )
+    }
+    function table getEgpPieChart(Position:vector2,Radius:number,Ratios:array,Colors:array){
+        local Angle = 0
+        local SimpleObjects = table()
+        local SimpleObjectOrder = array()
+        local Size = vec2(Radius)
+
+        for(I=1,Ratios:count()){
+            local Name = "wedge_"+I
+            local ArcAng = (1-Ratios[I,number])*360
+            local Simple = table(
+                "type" = "egpWedge"
+                ,"position" = vec2()#+vec2((I-1)*Size:x(),0)
+                ,"size" = Size
+                ,"sizenum" = ArcAng
+                ,"angle" = Angle
+                ,"color" = Colors[I,vector]
+            )
+            SimpleObjects[Name,table] = Simple
+            SimpleObjectOrder[I,string] = Name
+            Angle+=ArcAng
+        }
+        local Object = table(
+            "simpleObjects" = SimpleObjects
+            ,"simpleObjectOrder" = SimpleObjectOrder
+
+            ,"origin" = Position
+            ,"scale" = 1
+            ,"angle" = 0
+        )
+        return Object
+    }
+    #***************************************************************************************************************************************************#
+
+    function table newEgpObject(Origin:vector2,Angle,Scale){
+        return table(
+            "simpleObjects" = table()
+            ,"simpleObjectOrder" = array()
+            ,"origin" = Origin
+            ,"angle" = Angle
+            ,"scale" = Scale
+        )
+    }
+    function table newEgpObject(){
+        return newEgpObject(vec2(),0,1)
+    }
+    function table:egpObjectAddSimpleObject(Name:string,SimpleObject:table){
+        This["simpleObjects",table][Name,table] = SimpleObject
+        This["simpleObjectOrder",array][This["simpleObjectOrder",array]:count()+1,string] = Name
+    }
+    function table table:egpObjectGetSimpleObject(Name:string){
+        return This["simpleObjects",table][Name,table]
+    }
+    #***************************************************************************************************************************************************#
+    function table:egpObjectSetProperty(Name:string,Property:string,Value){
+        This["simpleObjects",table][Name,table][Property,number] = Value
+    }
+    function table:egpObjectSetProperty(Name:string,Property:string,Value:string){
+        This["simpleObjects",table][Name,table][Property,string] = Value
+    }
+    function table:egpObjectSetProperty(Name:string,Property:string,Value:vector){
+        This["simpleObjects",table][Name,table][Property,vector] = Value
+    }
+    function table:egpObjectSetProperty(Name:string,Property:string,Value:vector2){
+        This["simpleObjects",table][Name,table][Property,vector2] = Value
+    }
+    function table:egpObjectSetProperty(Name:string,Property:string,Value:entity){
+        This["simpleObjects",table][Name,table][Property,entity] = Value
+    }
+    #***************************************************************************************************************************************************#
+
+    function drawEgpQueue(Instructions:table){
+        local I = Instructions["i",number]
+        local End = Instructions["end",number]
+        local DrawTable = Instructions["draw",table]
+        local E = Instructions["wirelink",wirelink]
+        while(I <= End&perf(90)){
+            local Draw = DrawTable[I,table]
+            local SimpleObject = Draw["simple",table]
+            #***********************************************************************************************************************
+                local Transformation = Draw["transformation",matrix2]
+                local Origin = Draw["origin",vector2]
+                local Angle = Draw["angle",number]
+                local Scale = Draw["scale",number]
+                local Index = Draw["index",number]
+
+                #if(!Draw["redraw",number]){
+                    switch(SimpleObject["type",string]){
+                        case "egpBox",
+                            E:egpBox(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+                        case "egpBoxOutline",
+                            E:egpBoxOutline(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+                        case "egpRoundedBox",
+                            E:egpRoundedBox(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+                        case "egpRoundedBoxOutline",
+                            E:egpRoundedBoxOutline(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+
+                        case "egpText",
+                            E:egpText(Index,SimpleObject["text",string],Transformation*SimpleObject["position",vector2]+Origin)
+                        break
+                        case "egpTextLayout",
+                            E:egpTextLayout(Index,SimpleObject["text",string],Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+
+                        case "egpTriangle",
+                            E:egpTriangle(Index,Transformation*SimpleObject["v1",vector2]+Origin,Transformation*SimpleObject["v2",vector2]+Origin,Transformation*SimpleObject["v3",vector2]+Origin)
+                        break
+                        case "egpTriangleOutline",
+                            E:egpTriangleOutline(Index,Transformation*SimpleObject["v1",vector2]+Origin,Transformation*SimpleObject["v2",vector2]+Origin,Transformation*SimpleObject["v3",vector2]+Origin)
+                        break
+
+                        case "egpCircle",
+                            E:egpCircle(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+                        case "egpCircleOutline",
+                            E:egpCircleOutline(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+
+                        case "egpWedge",
+                            E:egpWedge(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+                        case "egpWedgeOutline",
+                            E:egpWedgeOutline(Index,Transformation*SimpleObject["position",vector2]+Origin,SimpleObject["size",vector2]*Scale)
+                        break
+
+                        case "egpPoly",
+                            E:egpPoly(Index,SimpleObject["positions",array])
+                        break
+                        case "egpPolyOutline",
+                            E:egpPolyOutline(Index,SimpleObject["positions",array])
+                        break
+
+                        case "egpLine",
+                            E:egpLine(Index,Transformation*SimpleObject["pos1",vector2]+Origin,Transformation*SimpleObject["pos2",vector2]+Origin)
+                        break
+                        case "egpLineStrip",
+                            E:egpLineStrip(Index,SimpleObject["positions",array])
+                        break
+                    }
+                #}
+
+                E:egpColor(Index,SimpleObject["color",vector])
+                if(SimpleObject["angle",number]+Angle) {E:egpAngle(Index,SimpleObject["angle",number]+Angle)}
+                if(SimpleObject:exists("sizenum")) {E:egpSize(Index,SimpleObject["sizenum",number]*Scale)}
+                if(SimpleObject:exists("font")) {E:egpFont(Index,SimpleObject["font",string])}
+                if(SimpleObject:exists("alpha")) {E:egpAlpha(Index,SimpleObject["alpha",number])}
+                if(SimpleObject:exists("fidelity")) {E:egpFidelity(Index,SimpleObject["fidelity",number])}
+                if(SimpleObject:exists("radius")) {
+                    if(SimpleObject["type",string]=="egpRoundedBox"|SimpleObject["type",string]=="egpRoundedBoxOutline"){
+                        E:egpRadius(Index,SimpleObject["radius",number]*Scale)
+                    }
+                    else
+                    {
+                        E:egpRadius(Index,SimpleObject["radius",number])
+                    }
+                }
+                if(SimpleObject:exists("align")) {E:egpAlign(Index,SimpleObject["align",vector2]:x(),SimpleObject["align",vector2]:y())}
+                if(SimpleObject:exists("material")) {E:egpMaterial(Index,SimpleObject["material",string])}
+                if(SimpleObject:exists("materialFromScreen")) {E:egpMaterialFromScreen(Index,SimpleObject["materialFromScreen",entity])}
+            #***********************************************************************************************************************
+            I++
+        }
+        Instructions["i",number] = I
+    }
+
+    function number handleEgpQueue(){
+        if(!clk("egpcore/handlequeue")){
+            return 0
+        }
+        local Count = EGPCORE_EGPQUEUE:count()
+        while(Count>0&perf()){
+            local Instructions = EGPCORE_EGPQUEUE[1,table]
+            drawEgpQueue(Instructions)
+            if(Instructions["i",number]>Instructions["end",number]){
+                EGPCORE_EGPQUEUE:removeTable(1)
+                Count--
+                if(Instructions["callback",string]){
+                    Instructions["callback",string](Instructions["data",table])
+                }
+            }
+        }
+        if(Count > 0){
+            timer("egpcore/handlequeue",10)
+        }
+        return 1
+    }
+
+    function table table:egpFrameBuild(ObjectsToDraw:array){
+        local NextIndex = This["highestIndex",number]
+        local Lookup = This["lookup",table]
+
+        local BuildCount = 0
+        local Build = table()
+
+        local Objects = This["objects",table]
+        local ObjectOrder = ObjectsToDraw
+        local Parents = This["parents",table]
+        local TransformationCache = table()
+        local Angle = 0 # Clean up global variables, define these as local to the function. Stupid untyped ass e2 ass bullshit ass gay ass
+        local Scale = 0
+        local Origin = vec2()
+        local Transformation = identity2()
+        local LocalTransformation = identity2()
+        local Index = 0
+
+        foreach(K,Name:string = ObjectOrder){
+            local Object = Objects[Name,table]
+
+            local TransformationCachePath = table() # Stores transformation data for the parents in this run, at the end it adds them to the cache
+
+            local CurName = Name
+
+            if(TransformationCache:exists(Name)){
+                local Trans = TransformationCache[Name,table]
+                Angle = Trans["angle",number]
+                Scale = Trans["scale",number]
+                Origin = Trans["origin",vector2]
+                Transformation = Trans["transformation",matrix2]
+            }else{
+                Scale = Object["scale",number]
+                Angle = Object["angle",number]
+                Origin = Object["origin",vector2]
+                local TAngle = Angle % 360
+                #**************** USE CACHED TRANSFORMATION MATRICES ****************#
+                if(EGPCORE_TRANSFORMATIONLOOKUP:exists(TAngle)){
+                    Transformation = EGPCORE_TRANSFORMATIONLOOKUP[TAngle,matrix2]
+                }else{
+                    local Sin = sin(TAngle)
+                    local Cos = cos(TAngle)
+                    Transformation = matrix2(Cos,Sin,-Sin,Cos)
+                    EGPCORE_TRANSFORMATIONLOOKUP[TAngle,matrix2] = Transformation
+                }
+                Transformation = Transformation * Scale
+                #**************** END ****************#
+                while(Parents:exists(CurName)){
+                    local Parent = Parents[CurName,string]
+                    CurName = Parent
+                    if(TransformationCache:exists(Parent)){
+                        local Trans = TransformationCache[Parent,table]
+
+                        Origin = Trans["origin",vector2] +  Trans["transformation",matrix2] * Origin
+                        Transformation = Transformation * Trans["transformation",matrix2]
+                        Scale = Scale * Trans["scale",number]
+                        Angle = Angle + Trans["angle",number]
+
+                        break
+                    }else{
+                        local ParentObject = Objects[Parent,table]
+                        local TAngle = ParentObject["angle",number] % 360
+                        #**************** USE CACHED TRANSFORMATION MATRICES ****************#
+                        if(EGPCORE_TRANSFORMATIONLOOKUP:exists(TAngle)){
+                            LocalTransformation = EGPCORE_TRANSFORMATIONLOOKUP[TAngle,matrix2]
+                        }else{
+                            local Sin = sin(TAngle)
+                            local Cos = cos(TAngle)
+                            LocalTransformation = matrix2(Cos,Sin,-Sin,Cos)
+                            EGPCORE_TRANSFORMATIONLOOKUP[TAngle,matrix2] = LocalTransformation
+                        }
+                        LocalTransformation = LocalTransformation * ParentObject["scale",number]
+                        #**************** END ****************#
+                        foreach(K,TransformationParent:table = TransformationCachePath){
+                            TransformationParent["angle",number]=TransformationParent["angle",number]+ParentObject["angle",number]
+                            TransformationParent["scale",number]=TransformationParent["scale",number]*ParentObject["scale",number]
+                            TransformationParent["origin",vector2] = ParentObject["origin",vector2]+LocalTransformation*TransformationParent["origin",vector2]
+                            TransformationParent["transformation",matrix2] = TransformationParent["transformation",matrix2]*LocalTransformation
+                        }
+
+                        Origin = ParentObject["origin",vector2] + LocalTransformation*Origin
+                        Transformation = Transformation*LocalTransformation
+                        Scale = Scale*ParentObject["scale",number]
+                        Angle = Angle+ParentObject["angle",number]
+
+                        TransformationCachePath[Parent,table] = table(
+                            "angle" = ParentObject["angle",number]
+                            ,"scale" = ParentObject["scale",number]
+                            ,"transformation" = LocalTransformation
+                            ,"origin" = ParentObject["origin",vector2]
+                        )
+                    }
+                }
+            }
+            foreach(K,TransformationParent:table = TransformationCachePath){
+                TransformationCache[K,table] = TransformationParent
+            }
+            local SimpleObjects = Object["simpleObjects",table]
+            foreach(K,SimpleName:string = Object["simpleObjectOrder",array]){
+                local Redraw = 0
+                if(Lookup[Name,table][SimpleName,number]){
+                    Index = Lookup[Name,table][SimpleName,number]
+                    #Redraw = 1
+                }else{
+                    NextIndex++
+                    Lookup[Name,table][SimpleName,number] = NextIndex
+                    Index = NextIndex
+                }
+                BuildCount++
+                Build[BuildCount,table]=table(
+                     "simple" = SimpleObjects[SimpleName,table]
+                    ,"transformation" = Transformation
+                    ,"angle" = Angle
+                    ,"scale" = Scale
+                    ,"origin" = Origin
+                    ,"index" = Index
+                    ,"redraw" = Redraw
+                )
+            }
+
+        }
+        This["highestIndex",number] = NextIndex
+        return Build
+    }
+
+    function table:egpFrameDraw(Callback:string,Data:table){
+        local Lookup = This["lookup",table]
+        foreach(K,Table:table=Lookup){
+            Lookup[K,table] = table()
+        }
+
+        local Build = This:egpFrameBuild(This["objectOrder",array])
+        local Instructions = table(
+            "i"=1
+            ,"end"=Build:count()
+            ,"wirelink"=This["wirelink",wirelink]
+            ,"draw"=Build
+            ,"callback" = Callback
+            ,"data" = Data
+        )
+        drawEgpQueue(Instructions)
+        if(Instructions["i",number]<Instructions["end",number]){
+
+            EGPCORE_EGPQUEUE[EGPCORE_EGPQUEUE:count()+1,table] = Instructions
+            timer("egpcore/handlequeue",10)
+        }
+    }
+    function table:egpFrameDraw(){
+        This:egpFrameDraw("",table())
+    }
+
+    function number table:egpGetRecursiveChildren(Objects:array,Lookup:table,Return:array,I){
+        local C=I
+        foreach(K,Name:string = Objects){
+            if(!Lookup[Name,number]){
+                if(This:exists(Name)){
+                    C+=This:egpGetRecursiveChildren(This[Name,array],Lookup,Return,C)
+                }
+                Return[C,string] = Name
+                Lookup[Name,number] = 1
+                C++
+            }
+        }
+        return C-I
+    }
+
+    function table:egpFrameRedraw(Objects:array,Callback:string,Data:table){
+        local Lookup = table()
+        local ObjectsToDraw = array()
+        This["children",table]:egpGetRecursiveChildren(Objects,table(),ObjectsToDraw,1)
+
+        local Build = This:egpFrameBuild(ObjectsToDraw)
+        local Instructions = table(
+            "i"=1
+            ,"end"=Build:count()
+            ,"wirelink"=This["wirelink",wirelink]
+            ,"draw"=Build
+            ,"callback" = Callback
+            ,"data" = Data
+        )
+        drawEgpQueue(Instructions)
+        if(Instructions["i",number]<Instructions["end",number]){
+            EGPCORE_EGPQUEUE[EGPCORE_EGPQUEUE:count()+1,table] = Instructions
+            timer("egpcore/handlequeue",10)
+        }
+    }
+    function table:egpFrameRedraw(Objects:array){
+        This:egpFrameRedraw(Objects,"",table())
+    }
+    function table:egpFrameRedraw(Callback:string,Data:table){
+        This:egpFrameRedraw(This["objectOrder",array],Callback,Data)
+    }
+    function table:egpFrameRedraw(){
+        This:egpFrameRedraw(This["objectOrder",array],"",table())
+    }
+
+    function table newEgpFrame(EGP:wirelink){
+        local Frame = table(
+             "highestIndex" = 0
+            ,"objectCount" = 0
+            ,"objects" = table() # Stores a list of all objects
+            ,"objectOrder" = array() # Top level of objects to run
+            ,"objectOrderLookup" = table()
+            ,"parents" = table() # Stores the parent of each object
+            ,"children" = table() # Top level of objects to run
+            ,"wirelink" = EGP
+            ,"lookup" = table()
+        )
+        return Frame
+    }
+
+    function table:egpFrameAddObject(Name:string,Object:table){
+        This["objects",table][Name,table] = Object
+        This["objectCount",number] = This["objectCount",number]+1
+        This["objectOrder",array][This["objectCount",number],string] = Name
+        This["objectOrderLookup",table][Name,number] = This["objectCount",number]
+        This["children",table][Name,array]=array()
+        #This["lookup",table][Name,table]=table()
+    }
+    function table table:egpFrameRemoveObject(Name:string){
+        local Object = This["objects",table][Name,table]
+        This["objectOrder",array]:removeString(This["objectOrderLookup",table][Name,number])
+        This["objectOrderLookup",table][Name,number]=0
+
+        This["objectCount",number] = This["objectCount",number]-1
+        local Parents = This["parents",table]
+        foreach(K,Child:string = This["children",table][Name,array]){ # Remove references to parent.
+            Parents[Child,string]=""
+        }
+
+        This["lookup",table][Name,table]=table()
+        This["children",table][Name,array]=array()
+        return Object
+    }
+
+    function table:egpFrameParentObject(Child:string,Parent:string){
+        This["parents",table][Child,string] = Parent
+        local ChildrenArray = This["children",table][Parent,array]
+        ChildrenArray[ChildrenArray:count()+1,string] = Child
+    }
+
+    function table:egpFrameUnParentObject(Child:string){
+        local Parent = This["parents",table]:remove(Child)
+        local NewArray = array()
+        local C = 1
+        foreach(K,Ch:string = This["children",table][Parent,array]){
+            if(Ch!=Child){
+                NewArray[C,string] = Ch
+            }
+        }
+        This["children",table][Parent,array]=NewArray
+    }
+
+    function table table:egpFrameGetObject(Name:string){
+        return This["objects",table][Name,table]
+    }
+
+    function number table:egpFrameGetObjectIndex(Name:string,Simple:string){
+        return This["lookup",table][Name,table][Simple,number]
+    }
+
+    #***************************************************************************************************************************************************#
+
+}
+
+#DEPRECATED, NOT IMPORTANT BUT POSSIBLY USEFUL
+#    function wirelink:egpBar(Index:number, Divisions:number, Position:vector2, Scale:vector2, Color:vector){
+#        local Border = 5
+#        This:egpBox(Index,Position,Scale)
+#        This:egpColor(Index,vec())
+#        local BoxScale = vec2((Scale:x() - ((Divisions+1)*Border))/Divisions,Scale:y()-Border*2)
+#        local BeginPos = vec2(-Scale:x()/2-BoxScale:x()/2,0)
+#        for(I=1,Divisions){
+#            This:egpBox(Index+I,BeginPos+vec2((BoxScale:x()+Border)*I,0),BoxScale)
+#            This:egpColor(Index+I,Color)
+#            This:egpParent(Index+I,Index)
+#        }
+#    }
+#    function wirelink:egpSetBar(Index:number, Divisions:number, Count:number , ColorFull:vector, ColorEmpty:vector){
+#        for(I=1,Divisions){
+#            if(I < Count+1){
+#                This:egpColor(Index+I,ColorFull)
+#            }else{
+#                This:egpColor(Index+I,ColorEmpty)
+#            }
+#        }
+#    }
+
+

@@ -1,0 +1,496 @@
+# Idk if this works. Go wild! It used to work, but I might have broken it trying to improve it.
+
+@name pathcore
+
+#Constants
+@persist PATHCORE_VECTOROFFSETS:array PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I PATHCORE_DEFAULT_OPTIMIZE_PASSES
+
+#Parameters
+@persist PATHCORE_DEFAULT_PARAMETERS:table PATHCORE_PARAMETERS:table
+@persist PATHCORE_OPTIMIZE_INCREMENT_I PATHCORE_OPTIMIZE_PASSES PATHCORE_HEURISTIC_MULT
+
+
+#Error Enums
+@persist PATH_OK PATH_ERROR_TIMEOUT PATH_ERROR_INVALID_END PATH_ERROR_CLOSED_LIST_EMPTY
+
+#
+@persist PATHCORE_PATHQUEUE:table PATHCORE_PATHTABLE:table
+
+@persist PATHCORE_TIMEOUT_TIME
+#Open List
+@persist PATHCORE_OPENLIST:array PATHCORE_OPENLIST_VALUES:array  PATHCORE_OPENLIST_COUNT
+#Closed List
+@persist PATHCORE_CLOSEDLIST:array
+
+#Current Path Constants
+@persist #[PathInstanceConstants Positions and transformations]# PATHCORE_PATHORIGIN:vector PATHCORE_PATHSCALE PATHCORE_ENDPOS_WORLD:vector PATHCORE_STARTPOS_WORLD:vector PATHCORE_ENDPOS:vector
+#Current Path Cached Values
+@persist #[PathInstanceCache]# PATHCORE_HASHTABLE:array PATHCORE_HEURISTICS:array PATHCORE_WORLDPOSITIONS:array
+@persist PATHCORE_COST:array PATHCORE_PARENTS:array
+@persist PATHCORE_PATHING PATHCORE_ENDHASH
+
+# For tracing the path from the end position to the start position.
+@persist PATHCORE_TRACE:array PATHCORE_TRACE_I PATHCORE_TRACE_HASH
+
+@persist PATHCORE_OPTIMIZE_STARTI PATHCORE_OPTIMIZE_FINISHI PATHCORE_OPTIMIZE_ENDI
+@persist PATHCORE_OPTIMIZE_PATH:array PATHCORE_OPTIMIZE_PATH_C
+
+# VARIABLES RELATING TO TRACING A PATH IN THE PATH OPTIMIZATION STEP
+@persist PATHCORE_OPTIMIZE_TRACEPATH_TRACING PATHCORE_OPTIMIZE_TRACEPATH_RESULT
+@persist [PATHCORE_OPTIMIZE_TRACEPATH_END PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN PATHCORE_OPTIMIZE_TRACEPATH_CURRENT PATHCORE_OPTIMIZE_TRACEPATH_DIRECTION]:vector PATHCORE_OPTIMIZE_TRACEPATH_I PATHCORE_OPTIMIZE_TRACEPATH_DISTANCE
+
+
+if(first()|duped()|dupefinished()){
+
+    PATHCORE_DEFAULT_PARAMETERS = table(
+        "scale" = 30 # Determines how far apart nodes in the grid are
+        ,"optimize_increment" = 3 # Effectively the attempted scale of each optimization pass. 2 would attempt to divide the amount of nodes in half, 3 in thirds etc. Lower numbers are more accurate though, and a division can fail because there is no path between every nth node
+        ,"optimize_passes" = 3 # The number of optimization passes the e2 attempts on each path. There is an optimization where if the path doesnt change after an optimization pass it skips all subsequent passes.
+        ,"timeout" = 20 # number of seconds the e2 will attempt to find a path before it times out and returns an error to the callback function
+        ,"heuristic_mult" = 10 # The number to multiply the manhattan distance by in the heuristic value of a point. Higher values means quicker pathing, but less optimal paths. Hopefully the optimizer will make this not matter.
+    )
+    PATHCORE_PARAMETERS=PATHCORE_DEFAULT_PARAMETERS:clone()
+    #Enum declarations
+    PATH_OK = 0
+    PATH_ERROR_TIMEOUT = 1
+    PATH_ERROR_INVALID_END = 2
+    PATHCORE_ERROR_CLOSED_LIST_EMPTY = 3
+
+    #The different vectors for directions to check.
+    PATHCORE_VECTOROFFSETS = array(
+         vec(1,0,0)
+        ,vec(0,1,0)
+        ,vec(-1,0,0)
+        ,vec(0,-1,0)
+        ,vec(0,0,1)
+        ,vec(0,0,-1)
+    )
+
+    # Preconditions:
+    # Input vector has components between 2^15 and -2^15
+    # Input vector has only integer components (Untested, I actually have no idea (however, thinking about it makes me pretty sure this is the case).)
+
+    # Postconditions:
+    # Returned number is unique to that vector, and could theoretically be used to generate the vector
+#    function number hashVector(Vector:vector){
+#        # 2^16 = 65536
+#        # 2^15 = 32768
+#        # I took this idea from the concept of storing a color as a single integer. This is traditionally done via bitwise operations, but integers are small.
+#        return ((Vector:x()+32768)*65536+(Vector:y()+32768))*65536+(Vector:z()+32768)
+#
+#    }
+
+    # OVERWRITABLE FUNCTIONS
+
+    #Way too expensive a feature for no-one to ever use
+#    function number getHeuristic(Difference:vector){
+#        local T = positive(Difference)
+#        return 1*(T:x()+T:y()+T:z())
+#    }
+
+    # This function can be overwritten to allow any behavior you want.
+
+    function number pathCanReach(WorldPos1:vector,WorldPos2:vector){ # A good default. Does not try to stick to floor
+        # Very fast, use for finding paths thru the air.
+        if(rangerOffsetHull(WorldPos1,WorldPos2,vec(15)):hit()){
+            return 0
+        }
+        return 1
+    }
+
+    #Removed grounded function from the code to save file upload time
+    #function number pathCanReach(WorldPos1:vector,WorldPos2:vector){ # Cannot leave the floor
+
+
+    #Stupid, way too expensive for noone to ever need
+#    function number pathCost(WorldPos1:vector,WorldPos2:vector){
+#        return 0
+#        #return floor((WorldPos1-WorldPos2):z()/PATHCORE_PATHSCALE)#floor(rangerOffset(100000,WorldPos2,vec(0,0,-1)):distance()/24)
+#    }
+    # END OVERWRITABLE FUNCTIONS
+
+    function startPathing(PathData:table){
+        #startPathing(PathData["startpos",vector],PathData["endpos",vector],PathData["scale",number])
+        if(PATHCORE_PATHING){
+            PATHCORE_PATHQUEUE[PATHCORE_PATHQUEUE:count()+1,table] = PathData
+            return
+        }
+        local StartPos = PathData["startpos",vector]
+        local EndPos = PathData["endpos",vector]
+        local Scale = PathData["scale",number]
+
+        rangerPersist(1)
+        rangerDefaultZero(0)
+        rangerFilter(players())
+        PATHCORE_PATHORIGIN = StartPos
+        PATHCORE_PATHSCALE = Scale
+
+        local EndPositionScaled = (EndPos-StartPos)/Scale
+
+        # A* only works on grid bound positions, there's a high chance your end position isnt aligned to the grid defined by scale and start position, so
+        local Min = floor(EndPositionScaled)
+        local Xmin = Min:x()
+        local Ymin = Min:y()
+        local Zmin = Min:z()
+        local Max = ceil(EndPositionScaled)
+        local Xmax = Max:x()
+        local Ymax = Max:y()
+        local Zmax = Max:z()
+
+        local EndPosPositions = array(
+            round(EndPositionScaled) # Try the closest pos first, otherwise try any of the 8 closest grid positions.
+            ,Min,vec(Xmax,Ymin,Zmin),vec(Xmin,Ymax,Zmin),vec(Xmax,Ymin,Zmax)
+            ,Max,vec(Xmin,Ymax,Zmax),vec(Xmax,Ymin,Zmax),vec(Xmax,Ymax,Zmin)
+        )
+        local FoundEnd = 0
+        foreach(K,Pos:vector =EndPosPositions ){
+            holoCreate(K,Pos*Scale+StartPos)
+            if(pathCanReach(Pos*Scale+StartPos,EndPos)){
+                PATHCORE_ENDPOS = Pos
+                FoundEnd = 1
+                break
+            }
+        }
+
+        if(!FoundEnd){ # If there was no valid end position, the path won't work. Return a failure.
+            PathData["callback",string](PATH_ERROR_INVALID_END,array(),PathData["data",table])
+
+            if(PATHCORE_PATHQUEUE:count()){ # Start working on the next path
+                startPathing(PATHCORE_PATHQUEUE:removeTable(1))
+            }
+            return
+        }
+
+
+        PATHCORE_ENDPOS_WORLD = EndPos
+        PATHCORE_ENDHASH =((PATHCORE_ENDPOS:x()+32768)*65536+(PATHCORE_ENDPOS:y()+32768))*65536+(PATHCORE_ENDPOS:z()+32768)
+        local Hash = ((32768)*65536+(32768))*65536+(32768) # Hash of vec()
+
+        PATHCORE_HASHTABLE = array()
+        PATHCORE_PARENTS = array()
+        PATHCORE_WORLDPOSITIONS = array()
+
+        PATHCORE_COST = array()
+        PATHCORE_HEURISTICS = array()
+
+        PATHCORE_CLOSEDLIST=array()
+
+        PATHCORE_OPENLIST = array()
+        PATHCORE_OPENLIST_VALUES = array()
+
+        PATHCORE_HEURISTIC_MULT = PathData["heuristic_mult",number]
+
+        local PosDif = positive(EndPos)
+        local Heuristic = PATHCORE_HEURISTIC_MULT*(PosDif:x()+PosDif:y()+PosDif:z())
+
+        PATHCORE_WORLDPOSITIONS[Hash,vector]=StartPos
+        PATHCORE_HASHTABLE[Hash,vector]=vec()
+
+        PATHCORE_COST[Hash,number] = 0
+        PATHCORE_OPENLIST_VALUES[Hash,number] = Heuristic
+        PATHCORE_HEURISTICS[Hash,number] = Heuristic
+
+        #holoCreate(1,StartPos)
+        #holoCreate(2,PATHCORE_ENDPOS*PATHCORE_PATHSCALE+PATHCORE_PATHORIGIN)
+
+        PATHCORE_PATHTABLE = PathData
+        # Set parameters
+        PATHCORE_OPTIMIZE_PASSES = PathData["optimize_passes",number]
+        PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I = PathData["optimize_increment",number]
+        PATHCORE_PATHSCALE = PathData["scale",number]
+        PATHCORE_TIMEOUT_TIME = curtime()+PathData["timeout",number]
+
+        PATHCORE_PATHING = 1 # Set the pathing flag so no other path attempts occur
+        timer("pathcore/openlist",10)
+    }
+
+    function number doOpenList(){ # returns 1 if the path is completed, otherwise returns 0
+
+    }
+
+#    function array tracePath(){
+#        local Hash = PATHCORE_ENDHASH # Last index of the last location
+#        local Output = array(PATHCORE_WORLDPOSITIONS[Hash,vector])
+#        local C = 2
+#        while(PATHCORE_PARENTS:exists(Hash)){
+#            Hash = PATHCORE_PARENTS[Hash,number] # Gets the next one up
+#            Output[C,vector] = PATHCORE_WORLDPOSITIONS[Hash,vector] # Get the world position of that
+#            C++
+#        }
+#        return Output
+#    }
+
+    function number handlePathfind(){
+        #print(clkName())
+        if(clk("pathcore/openlist")){ # Actual pathfinding
+            local PathFound = 0
+            while(perf()&!PathFound){
+                #Generate new positions
+                local Min = PATHCORE_OPENLIST_VALUES:minIndex()
+                local MinPosition = PATHCORE_HASHTABLE[Min,vector]
+                #print(PATHCORE_OPENLIST_VALUES[Min,number])
+                local Cost = PATHCORE_COST[Min,number]+1
+                local WorldPosMin = PATHCORE_WORLDPOSITIONS[Min,vector]
+
+                foreach(K,VectorOffset:vector = PATHCORE_VECTOROFFSETS){
+
+                    local Position = MinPosition+VectorOffset
+                    #print(Position)
+                    local VectorHash = ((Position:x()+32768)*65536+(Position:y()+32768))*65536+(Position:z()+32768)
+                    #print(VectorHash)
+
+
+                    if(!PATHCORE_HASHTABLE:exists(VectorHash)){
+                        PATHCORE_HASHTABLE[VectorHash,vector] = Position
+                        PATHCORE_WORLDPOSITIONS[VectorHash,vector] = PATHCORE_PATHORIGIN + Position * PATHCORE_PATHSCALE
+                    }
+                    if(pathCanReach(WorldPosMin,PATHCORE_WORLDPOSITIONS[VectorHash,vector])){ # if there's a clear path between them
+                        local Cost = Cost + 1
+                        if(PATHCORE_CLOSEDLIST:exists(VectorHash)){ # If it's on the closed list
+                            local PrevCost = PATHCORE_COST[VectorHash,number]
+                        if(Cost<PrevCost){ # This is a better path, update the parents and stuff.
+                            PATHCORE_COST[VectorHash,number] = Cost
+                            PATHCORE_PARENTS[VectorHash,number] = Min # Sets the parent to the current running value.
+                        }
+                        }elseif(PATHCORE_OPENLIST:exists(VectorHash)){  # If it's on the open list
+                            if(Cost<PATHCORE_COST[VectorHash,number]){ # This is a better path, update the parents and stuff.
+                                PATHCORE_COST[VectorHash,number] = Cost
+                                PATHCORE_OPENLIST_VALUES[VectorHash,number] = Cost+PATHCORE_HEURISTICS[VectorHash,number]
+                                PATHCORE_PARENTS[VectorHash,number] = Min # Sets the parent to the current running value.
+                            }
+                        }else{ # It's new, initialize it. Add it to the open list.
+                            #local I = random(50000000)
+                            #holoCreate(I,PATHCORE_WORLDPOSITIONS[VectorHash,vector])
+                            #holoColor(I,vec4(0,0,100,100))
+                            # Add to open list
+                            PATHCORE_PARENTS[VectorHash,number] = Min # Sets the parent to the current running value.
+                            PATHCORE_COST[VectorHash,number] = Cost # Sets the initial cost to the cost
+
+                            local PosDif = positive(PATHCORE_ENDPOS-Position)
+                            local Heuristic = PATHCORE_HEURISTIC_MULT*(PosDif:x()+PosDif:y()+PosDif:z())
+                            #print("H:",Heuristic,"D:",Difference,"C:",Cost)
+                            PATHCORE_HEURISTICS[VectorHash,number] = Heuristic
+                            PATHCORE_OPENLIST_VALUES[VectorHash,number]= Heuristic+Cost
+                            PATHCORE_OPENLIST_COUNT++ # increment the open list count
+                        }
+                        if(VectorHash == PATHCORE_ENDHASH){
+                            PathFound = 1
+                        }
+                    }
+                }
+                #holoCreate(Min,PATHCORE_WORLDPOSITIONS[Min,vector] )
+                PATHCORE_OPENLIST_COUNT-- # decremement the open list count.
+                PATHCORE_OPENLIST_VALUES:unset(Min) # Remove it from the open list
+                PATHCORE_OPENLIST:unset(Min) # Remove it from the open list
+                PATHCORE_CLOSEDLIST[Min,vector] = MinPosition # Add it to the closed list
+            }
+            if(PathFound){
+                PATHCORE_TRACE_HASH = PATHCORE_ENDHASH
+                PATHCORE_TRACE = array(PATHCORE_ENDPOS_WORLD,PATHCORE_WORLDPOSITIONS[PATHCORE_TRACE_HASH,vector])
+                PATHCORE_TRACE_I = 3
+                timer("pathcore/tracepath",10)
+            }else{
+                if(curtime()<PATHCORE_TIMEOUT_TIME){
+                    timer("pathcore/openlist",10)
+                }else{
+                    #Return timeout error
+                    PATHCORE_PATHTABLE["callback",string](PATH_ERROR_TIMEOUT,array(),PATHCORE_PATHTABLE["data",table])
+                    PATHCORE_PATHING = 0
+                    if(PATHCORE_PATHQUEUE:count()){
+                        startPathing(PATHCORE_PATHQUEUE:removeTable(1))
+                    }
+                }
+            }
+            return 1
+        }elseif(clk("pathcore/tracepath")){ # When the path is found, trace the optimal path and store it to an array
+            while(perf()&PATHCORE_PARENTS:exists(PATHCORE_TRACE_HASH)){
+                PATHCORE_TRACE_HASH = PATHCORE_PARENTS[PATHCORE_TRACE_HASH,number] # Gets the next one up
+                PATHCORE_TRACE[PATHCORE_TRACE_I,vector] = PATHCORE_WORLDPOSITIONS[PATHCORE_TRACE_HASH,vector] # Get the world position of that
+                PATHCORE_TRACE_I++
+            }
+            if(!PATHCORE_PARENTS:exists(PATHCORE_TRACE_HASH)){
+#                local Count = PATHCORE_TRACE:count()
+#                foreach(K,Vector:vector=PATHCORE_TRACE){
+#                    local Scalar = K/Count
+#                    local Exp = exp(Scalar)*255/_E
+#                    #print(Exp)
+#                    holoCreate(K,Vector,vec(15/12))
+#                    holoColor(K,vec(0,255-Exp,Exp))
+#                }
+
+                if(PATHCORE_OPTIMIZE_PASSES>0){
+                    #-- Set up the optimization ---#
+                    PATHCORE_OPTIMIZE_PATH = array(PATHCORE_TRACE[1,vector]) # Start optimized path with first vector
+                    PATHCORE_OPTIMIZE_PATH_C = 2
+
+
+                    PATHCORE_OPTIMIZE_INCREMENT_I = PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I
+
+                    PATHCORE_OPTIMIZE_STARTI = 1
+                    PATHCORE_OPTIMIZE_ENDI = 1
+                    PATHCORE_OPTIMIZE_FINISHI = PATHCORE_TRACE:count()
+                    #-- End ---#
+
+                    timer("pathcore/optimizepath",10)
+                }else{
+                    PATHCORE_OPTIMIZE_PATH = PATHCORE_TRACE
+                }
+
+            }else{
+                timer("pathcore/tracepath",10)
+            }
+            return 1
+        }elseif(clk("pathcore/optimizepath")){ # Path is grid bound positions, optimization reduces nodes and shortens distances.
+            while(perf()&(PATHCORE_OPTIMIZE_STARTI<PATHCORE_OPTIMIZE_FINISHI)){
+                # TRACING PROPPER
+                switch(PATHCORE_OPTIMIZE_TRACEPATH_TRACING){
+                    case 1, # Deals with tracing each step of the path while optimizing. I'm sorry, but this really won't mean anything to anyone.
+
+                        while(perf()&PATHCORE_OPTIMIZE_TRACEPATH_I<PATHCORE_OPTIMIZE_TRACEPATH_DISTANCE){
+                            local NextPos = PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN+PATHCORE_OPTIMIZE_TRACEPATH_DIRECTION*PATHCORE_OPTIMIZE_TRACEPATH_I
+                            if(!pathCanReach(PATHCORE_OPTIMIZE_TRACEPATH_CURRENT,NextPos)){ # If this movement fails,
+                                #print("Movement failed")
+                                PATHCORE_OPTIMIZE_TRACEPATH_RESULT = 0 # Return 0 so to speak
+                                PATHCORE_OPTIMIZE_TRACEPATH_TRACING = 2 # Cease tracing, go to the next step
+                                break # Actually break from this internal while loop.
+                            }
+
+                            PATHCORE_OPTIMIZE_TRACEPATH_CURRENT = NextPos # Set it for next itteration
+                            PATHCORE_OPTIMIZE_TRACEPATH_I++
+                        }
+                        if(PATHCORE_OPTIMIZE_TRACEPATH_TRACING==1 & !PATHCORE_OPTIMIZE_TRACEPATH_I<PATHCORE_OPTIMIZE_TRACEPATH_DISTANCE){
+                            #print("Movement Success")
+                            PATHCORE_OPTIMIZE_TRACEPATH_RESULT = 1 # Return 1, this path works.
+                            PATHCORE_OPTIMIZE_TRACEPATH_TRACING=2 # Set tracing to 2 to handle the trace result
+                        }
+
+                    break
+                    case 2, #TRACING RESULTS
+                        if(PATHCORE_OPTIMIZE_TRACEPATH_RESULT==1){ # If the trace was successful
+                           #print("Reached ",PATHCORE_OPTIMIZE_STARTI,PATHCORE_OPTIMIZE_ENDI+PATHCORE_OPTIMIZE_INCREMENT_I)
+                            PATHCORE_OPTIMIZE_ENDI=min(PATHCORE_OPTIMIZE_ENDI+PATHCORE_OPTIMIZE_INCREMENT_I,PATHCORE_OPTIMIZE_FINISHI)
+                           #print("ADDPOINT ",PATHCORE_OPTIMIZE_ENDI)
+                            PATHCORE_OPTIMIZE_PATH:pushVector(PATHCORE_TRACE[PATHCORE_OPTIMIZE_ENDI,vector])
+                            PATHCORE_OPTIMIZE_STARTI = min(PATHCORE_OPTIMIZE_ENDI,PATHCORE_OPTIMIZE_FINISHI)
+                            PATHCORE_OPTIMIZE_INCREMENT_I = PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I
+                        }elseif(PATHCORE_OPTIMIZE_INCREMENT_I>1){
+                            local IPrev = PATHCORE_OPTIMIZE_INCREMENT_I
+                            PATHCORE_OPTIMIZE_INCREMENT_I= ceil(PATHCORE_OPTIMIZE_INCREMENT_I/2)
+                           #print("Subdivide ",PATHCORE_OPTIMIZE_STARTI,PATHCORE_OPTIMIZE_ENDI+IPrev,PATHCORE_OPTIMIZE_INCREMENT_I)
+                        }else{
+                           #print("ADDPOINT DUE TO SUBDIVISON EXCEEDING 1",PATHCORE_OPTIMIZE_ENDI)
+                            PATHCORE_OPTIMIZE_PATH[PATHCORE_OPTIMIZE_PATH_C,vector] = PATHCORE_TRACE[PATHCORE_OPTIMIZE_ENDI,vector]
+                            PATHCORE_OPTIMIZE_PATH_C++
+                            PATHCORE_OPTIMIZE_STARTI = min(PATHCORE_OPTIMIZE_ENDI,PATHCORE_OPTIMIZE_FINISHI)
+                            PATHCORE_OPTIMIZE_INCREMENT_I = PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I
+                        }
+                        PATHCORE_OPTIMIZE_TRACEPATH_TRACING=0
+
+                    break
+                    default, #TRACING INIT
+                        #print("tracing from ",PATHCORE_OPTIMIZE_STARTI,"to",PATHCORE_OPTIMIZE_ENDI+PATHCORE_OPTIMIZE_INCREMENT_I)
+
+                        PATHCORE_OPTIMIZE_TRACEPATH_END = PATHCORE_TRACE[min(PATHCORE_OPTIMIZE_ENDI+PATHCORE_OPTIMIZE_INCREMENT_I,PATHCORE_OPTIMIZE_FINISHI),vector]
+                        PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN = PATHCORE_TRACE[PATHCORE_OPTIMIZE_STARTI,vector]
+                        PATHCORE_OPTIMIZE_TRACEPATH_CURRENT = PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN
+                        local Distance = (PATHCORE_OPTIMIZE_TRACEPATH_END-PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN):length() / PATHCORE_PATHSCALE
+                        PATHCORE_OPTIMIZE_TRACEPATH_DIRECTION = (PATHCORE_OPTIMIZE_TRACEPATH_END-PATHCORE_OPTIMIZE_TRACEPATH_ORIGIN):normalized() * PATHCORE_PATHSCALE
+
+                        PATHCORE_OPTIMIZE_TRACEPATH_I = 1
+                        PATHCORE_OPTIMIZE_TRACEPATH_DISTANCE = Distance
+
+                        PATHCORE_OPTIMIZE_TRACEPATH_TRACING = 1# Set to tracing step
+                    break
+                }
+            }
+            if(!(PATHCORE_OPTIMIZE_STARTI<PATHCORE_OPTIMIZE_FINISHI)){
+                if(PATHCORE_OPTIMIZE_PASSES>0 & PATHCORE_OPTIMIZE_FINISHI != PATHCORE_OPTIMIZE_PATH:count()){
+                    PATHCORE_OPTIMIZE_PASSES--
+                    PATHCORE_TRACE = PATHCORE_OPTIMIZE_PATH # Optimize the current path
+
+                    #-- Set up the optimization ---#
+                    PATHCORE_OPTIMIZE_PATH = array(PATHCORE_TRACE[1,vector]) # Start optimized path with first vector
+                    PATHCORE_OPTIMIZE_PATH_C = 2 # index to add new positions to the array
+
+                    PATHCORE_OPTIMIZE_INCREMENT_I=PATHCORE_DEFAULT_OPTIMIZE_INCREMENT_I
+                    PATHCORE_OPTIMIZE_STARTI = 1
+                    PATHCORE_OPTIMIZE_ENDI = 1
+                    PATHCORE_OPTIMIZE_FINISHI = PATHCORE_TRACE:count()
+
+                    PATHCORE_OPTIMIZE_TRACEPATH_TRACING = 0
+                    #-- End ---#
+
+
+
+                    timer("pathcore/optimizepath",10)# Reoptimize
+                }else{
+                                   timer("pathcore/callback",100) # Tell it to wait 100 ms before returning the data, that way it doesnt start out without any ops.
+                }
+            }else{
+                timer("pathcore/optimizepath",10)
+            }
+            return 1
+        }elseif(clk("pathcore/callback")){
+            # Do Callback
+            PATHCORE_PATHTABLE["callback",string](PATH_OK,PATHCORE_OPTIMIZE_PATH,PATHCORE_PATHTABLE["data",table])
+            PATHCORE_PATHING = 0
+            if(PATHCORE_PATHQUEUE:count()){ # Do next path in queue
+                startPathing(PATHCORE_PATHQUEUE:removeTable(1))
+            }
+        }
+        return 0
+    }
+
+
+    #-----------------------------------------------------------------------------------------#
+    #---------------------------------- TOP LEVEL INTERFACE ----------------------------------#
+    #-----------------------------------------------------------------------------------------#
+
+    function pathGridSize(Scale){
+        PATHCORE_PARAMETERS["scale",number] = Scale
+    }
+
+    function pathOptimizationPasses(Passes){
+        PATHCORE_PARAMETERS["optimize_passes",number] = Passes
+    }
+
+    function pathOptimizationIncrement(Increment){
+        PATHCORE_PARAMETERS["optimize_increment",number] = Increment
+    }
+
+    function pathTimeout(Time){
+        PATHCORE_PARAMETERS["timeout",number] = Time
+    }
+
+    function pathHeuristicMult(Mult){
+        PATHCORE_PARAMETERS["heuristic_mult",number] = Mult
+    }
+
+    function pathReset(){
+        PATHCORE_PARAMETERS = PATHCORE_DEFAULT_PARAMETERS:clone()
+    }
+
+    function number pathing(){
+        return PATHCORE_PATHING
+    }
+
+
+
+    function findPath(StartPos:vector,EndPos:vector,Callback:string,Data:table){
+        local PathDataTable = table(
+            "startpos" = StartPos
+            ,"endpos" = EndPos
+            ,"callback" = Callback
+            ,"data" = Data
+
+            ,"scale" = PATHCORE_PARAMETERS["scale",number]
+            ,"optimize_increment" = PATHCORE_PARAMETERS["optimize_increment",number]
+            ,"optimize_passes" = PATHCORE_PARAMETERS["optimize_passes",number]
+            ,"timeout" = PATHCORE_PARAMETERS["timeout",number]
+        )
+        startPathing(PathDataTable)
+    }
+
+    #findPath(entity():toWorld(vec(0,0,25)),owner():pos()+vec(0,0,24),24)
+
+}

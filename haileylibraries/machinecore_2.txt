@@ -1,0 +1,85 @@
+if(first()|duped()|dupefinished())
+{
+    #include "haileylibraries/delaydo"
+
+    function transferItem(Item:table, Component:table){
+        transferItemAlongPath(Item, table(1=Components))
+    }
+
+    function transferItemAlongPath(Item:table, Components:table){
+        // TODO
+        local Input = table()
+        if(Item:exists("current_component")){
+            Input = table(
+                "item" = Item,
+                "component_a" = Item["current_component",table],
+                "components_b" =  Components[1,table],
+                "components" = Components,
+                "STATE" = "exit"
+            )
+        } else {
+            ComponentA = Components:removeTable(1)
+            Input = table(
+                "item" = Item,
+                "component_a" = ComponentA
+                "components_b" =  Components[1,table],
+                "components" = Components,
+                "STATE" = "enter"
+            )
+        }
+
+        transferAlongPath_delay(Input)
+    }
+
+    function transferAlongPath_delay(Input:table){
+        Components = Input["components",table]
+        ComponentA = Input["component_a",table]
+        ComponentB = Input["component_b",table]
+        Item = Input["item",table]
+
+        switch(Input["STATE",string]){
+            case "exit", default,
+            if(ComponentA:exists("exitItem"))
+            {
+                NearestExit = ComponentA["nearestExit",string]
+                NearestEntrance = ComponentB["nearestEntrance",string]
+
+                # Calculate exit position
+                Exit = NearestExit(ComponentA, Item["itemPosition",string]())
+                Entrance = NearestEntrance(ComponentB, Exit)
+                for(I=1, 3){
+                    Exit = NearestExit(ComponentA, Entrance)
+                    Entrance = NearestEntrance(ComponentB, Exit)
+                }
+
+                Input["STATE",string] = "enter"
+                ComponentA["exitItem",string](Item, ComponentA, Exit, delayDoTable("transfer_delay", Input, 10))
+                break
+            }
+
+            case "enter",
+                Entrance = nearestEntrance(Item["itemPosition",string]())
+
+                Input["STATE",string] = "handle"
+                ComponentB["enterItem",string](Item, ComponentB, Entrance, delayDoTable("transfer_delay", Input, 10))
+            break
+
+            case "handle",
+                if(ComponentA:exists("itemLeft")){
+                    ComponentA["itemLeft", string](Item, ComponentA)
+                }
+
+                local Callback = delayDoTable("transfer_delay", Input, 10)
+
+                Input["component_a",table] = ComponentB
+                Input["component_b",table] = Components:removeTable(1)
+                Input["STATE",string] = "exit"
+                if(ComponentB:exists("handleItem")){
+                    ComponentB["handleItem",string](Item, ComponentB, Callback)
+                }else {
+                    delayDo(Callback)
+                }
+            break
+        }
+    }
+}

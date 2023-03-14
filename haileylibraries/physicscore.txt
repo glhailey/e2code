@@ -208,33 +208,30 @@ if(first()|duped()){
 
     function number handlePhysicsObjects()
     {
-        if(tickClk()){
-            foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
-            {
-                #local Obj = PHYSICSCORE_PHYSICS_OBJECT_LIST[I,table]
-                local Ent = Obj["entity",entity]
-                local StoreVec = Obj["cached_vec",vector] # vec(Obj["angspeed",number],Obj["angspeedQuotient",number],Obj["speed",number])
+		foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
+		{
+			#local Obj = PHYSICSCORE_PHYSICS_OBJECT_LIST[I,table]
+			local Ent = Obj["entity",entity]
+			local StoreVec = Obj["cached_vec",vector] # vec(Obj["angspeed",number],Obj["angspeedQuotient",number],Obj["speed",number])
 
-                #local Dir = Obj["position",vector]-Ent:pos()
-                #Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*Obj["angspeed",number] - Obj["angspeedQuotient",number]*Ent:angVel())*Obj["inertia",angle])
-                #Ent:applyForce(((Obj["position",vector]-Ent:pos()) * Obj["speed",number] - Ent:vel() + vec(0,0,20))*(Ent:mass()))
+			#local Dir = Obj["position",vector]-Ent:pos()
+			#Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*Obj["angspeed",number] - Obj["angspeedQuotient",number]*Ent:angVel())*Obj["inertia",angle])
+			#Ent:applyForce(((Obj["position",vector]-Ent:pos()) * Obj["speed",number] - Ent:vel() + vec(0,0,20))*(Ent:mass()))
 
-                Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*StoreVec:x() - StoreVec:y()*Ent:angVel())*Obj["inertia",angle])
-                Ent:applyForce(((Obj["position",vector]-Ent:pos()) * StoreVec:z() - Ent:vel() + vec(0,0,20))*(Ent:mass()))
-            }
+			Ent:applyAngForce((Ent:toLocal(Obj["angle",angle])*StoreVec:x() - StoreVec:y()*Ent:angVel())*Obj["inertia",angle])
+			Ent:applyForce(((Obj["position",vector]-Ent:pos()) * StoreVec:z() - Ent:vel() + vec(0,0,20))*(Ent:mass()))
+		}
 
-            if(PHYSCORE_CACHE_REFRESH<=curtime()){
-                PHYSCORE_CACHE_REFRESH = curtime()+PHYSCORE_CACHE_REFRESH_RATE/1000
-                foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
-                {
+		if(PHYSCORE_CACHE_REFRESH<=curtime()){
+			PHYSCORE_CACHE_REFRESH = curtime()+PHYSCORE_CACHE_REFRESH_RATE/1000
+			foreach(K, Obj:table = PHYSICSCORE_PHYSICS_OBJECT_LIST)
+			{
 
-                    local Ent = Obj["entity",entity]
-                    Obj["mass",number] = Ent:mass()
-                    Obj["inertia",angle] = shiftL(ang(Ent:inertia()))
-                }
-            }
-            return 1
-        }
-        return 0
+				local Ent = Obj["entity",entity]
+				Obj["mass",number] = Ent:mass()
+				Obj["inertia",angle] = shiftL(ang(Ent:inertia()))
+			}
+		}
+		return 1
     }
 }

@@ -1,0 +1,38 @@
+@name "haileylibraries/entitystream"
+
+if(first()|duped()|dupefinished())
+{
+    function table newEntityStream(Entities:array){
+        return table("entities" = Entities:clone(), "start" = 0, "consumed" = table())
+    }
+
+    function entity table:consumeEntity(ClassPattern:string, ModelPattern:string){
+        Entities = This["entities",array]
+        Consumed = This["consumed",table]
+        Start = This["start",number]
+        End =  Entities:count()-1
+
+        # Support * wildcard like find functions
+        ModelRE = ModelPattern:replace("*",".*"):lower()
+        ClassRE = ClassPattern:replace("*",".*"):lower()
+
+        for (I = Start, End, 1) {
+            Entity = Entities[I,entity]
+            if (!Consumed[I,number] & Entity:type():matchFirst(ClassRE) != "" & Entity:model():matchFirst(ModelRE) != "") {
+                Consumed[I,number] = 1
+                if (I == Start){
+                    # We know that the minimum unconsumed index
+                    # will remain the minimum unless it is consumed
+                    for(J = Start+1, End){
+                        if(!Consumed[J,number]){
+                            This["start",number] = J
+                            break
+                        }
+                    }
+                }
+                return Entity
+            }
+        }
+        return noentity()
+    }
+}

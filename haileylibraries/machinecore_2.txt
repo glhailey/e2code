@@ -2,6 +2,10 @@ if(first()|duped()|dupefinished())
 {
     #include "haileylibraries/delaydo"
 
+    function vector table:getItemPosition() {
+        return This["itemPosition",string](This)[vector]
+    }
+
     function transferAlongPath_delay(Input:table){
         Components = Input["components",table]
         ComponentA = Input["component_a",table]
@@ -16,7 +20,7 @@ if(first()|duped()|dupefinished())
                 NearestEntrance = ComponentB["nearestEntrance",string]
 
                 # Calculate exit position
-                Exit = NearestExit(ComponentA, Item["itemPosition",string](Item)[vector])[vector]
+                Exit = NearestExit(ComponentA, Item:getItemPosition())[vector]
                 Entrance = NearestEntrance(ComponentB, Exit)[vector]
                 for(I=1, 3){
                     Exit = NearestExit(ComponentA, Entrance)[vector]

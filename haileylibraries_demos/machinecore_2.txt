@@ -1,0 +1,201 @@
+@name MACHINECORE_2 TEST
+@inputs Prop_A:entity Prop_B:entity
+@persist [J1 L1 J2 P1 JA1 JB1 BP JB2 JA2]:table [IA IB]:table
+@strict
+
+if(first()){
+    #include "haileylibraries/machinecore_2"
+    #include "haileylibraries/physicsmachine"
+
+
+    # PhysicsObject
+
+    function vector getItemPositionPhysicsObject(Item:table){
+        return Item["position",vector]
+    }
+
+    function table table:physicsObjectMakeItem(){
+        This["itemPosition",string] = "getItemPositionPhysicsObject"
+        return This
+    }
+
+    function moveItemDirect(Item:table, Component:table, Position:vector, Callback:table){
+        Item:moveToward(Position,30,0,Callback)
+    }
+
+    ######
+    # Junction owned functions
+
+    function table newComponentJunction(Position:vector)
+    {
+        return table(
+            "position" = Position,
+            "enterItem" = "moveItemDirect",
+            "nearestEntrance" = "nearestPosJunction",
+            "nearestExit" = "nearestPosJunction"
+         )
+    }
+
+
+    function vector nearestPosJunction(Junction:table, Position:vector){
+        return Junction["position",vector]
+    }
+
+    ######
+    # Line owned functions
+
+    function table newComponentLine(Position:vector, Direction:vector)
+    {
+        return table(
+            "position" = Position,
+            "direction" = Direction:normalized(),
+            "enterItem" = "moveItemDirect",
+            "exitItem" = "moveItemDirect",
+            "nearestEntrance" = "nearestPosLine",
+            "nearestExit" = "nearestPosLine"
+         )
+    }
+
+    function vector nearestPosLine(Line:table, Position:vector){
+        Origin = Line["position",vector]
+        Direction = Line["direction",vector]
+        return (Position-Origin):dot(Direction)*Direction+Origin
+    }
+
+    ######
+    # Plane owned functions
+
+    function table newComponentPlane(Position:vector, Direction:vector)
+    {
+        return table(
+            "position" = Position,
+            "direction" = Direction:normalized(),
+            "enterItem" = "moveItemDirect",
+            "exitItem" = "moveItemDirect",
+            "nearestEntrance" = "nearestPosPlane",
+            "nearestExit" = "nearestPosPlane"
+         )
+    }
+
+    function vector nearestPosPlane(Line:table, Position:vector){
+        Origin = Line["position",vector]
+        Direction = Line["direction",vector]
+        return Position - (Position-Origin):dot(Direction)*Direction
+    }
+
+    ######
+    # Blocking Components only allow one Item at a time.
+	# Therefore, the user can send as many Items through this component as desired without collisions
+	
+    function table table:componentMakeBlocking(){
+        This["blocked",number] = 0
+        This["blocked_callbacks",table] = table()
+        return This
+    }
+
+
+    function itemLeftUnblock(Item:table, Component:table){
+        Component["blocked",number] = 0
+        if(Component["blocked_callbacks",table]:count()){
+            delayDo(Component["blocked_callbacks",table]:removeTable(1))
+        }
+    }
+
+    function table itemEnterBlocking_callback(Item:table, Component:table, Position:vector, Callback:table){
+        return delayDoTable(
+            "itemEnterBlocking_delay",
+            table(
+                "item" = Item,
+                "component" = Component,
+                "position" = Position,
+                "callback" = Callback
+            ),
+            10
+        )
+    }
+	
+	# Enter item if not blocked, otherwise push item to a queue
+    function itemEnterBlocking(Item:table, Component:table, Position:vector, Callback:table){
+        if(!Component["blocked",number]){
+            Component["blocked",number] = 1
+
+            moveItemDirect(Item,Component,Position,Callback)
+        } else {
+            print(Position)
+            Component["blocked_callbacks",table]:pushTable(
+                itemEnterBlocking_callback(Item,Component,Position,Callback)
+            )
+        }
+    }
+	
+	# For repeating attempts to enter an item
+    function itemEnterBlocking_delay(Input:table){
+        itemEnterBlocking(Input["item",table], Input["component",table], Input["position",vector], Input["callback",table])
+    }
+
+    #####
+    # Blocking Plane
+
+    function table newComponentBlockingPlane(Position:vector, Direction:vector)
+    {
+        return table(
+            "position" = Position,
+            "direction" = Direction:normalized(),
+            "itemLeft" = "itemLeftUnblock",
+            "enterItem" = "itemEnterBlocking",
+            "exitItem" = "moveItemDirect",
+            "nearestEntrance" = "nearestPosPlane",
+            "nearestExit" = "nearestPosPlane"
+         ):componentMakeBlocking()
+    }
+
+
+    ######
+
+    Prop_A:setColor(vec(250,170,170))
+    Prop_B:setColor(vec(140,0,255))
+
+    IA = Prop_A:toPhysicsObject():physicsObjectMakeItem()
+    IB = Prop_B:toPhysicsObject():physicsObjectMakeItem()
+
+    addPhysicsObject(IA)
+    addPhysicsObject(IB)
+
+    function vector relPos(P:vector){
+        return entity():pos()+P
+    }
+
+    J1 = newComponentJunction(relPos(vec(-100,0,30)))
+    L1 = newComponentLine(relPos(vec(-75,0,30)), vec(0,0,1))
+    J2 = newComponentJunction(relPos(vec(-50,0,50)))
+    P1 = newComponentPlane(relPos(vec(-25,0,50)), vec(1,0,0))
+
+
+    JA1 = newComponentJunction(relPos(vec(0,50,30)))
+    JB1 = newComponentJunction(relPos(vec(0,0,30)))
+
+    BP = newComponentBlockingPlane(relPos(vec(25,50,30)),vec(1,0,0))
+
+    JA2 = newComponentJunction(relPos(vec(50,0,30)))
+    JB2 = newComponentJunction(relPos(vec(50,50,30)))
+
+
+
+    # Demonstrate lines and planes
+    transferItemAlongPath(IA,table(J1,L1,J2,P1,JA1),delayDoTable("testMachineBlocking",table(),10))
+    # Prepare item b for blocking demonstration
+    transferItemAlongPath(IB,table(JB1),table())
+
+    function testMachineBlocking(Input:table){
+        # Try to send two items through the same component at the same time
+        transferItemAlongPath(IB,table(BP,JB2),table())
+        transferItemAlongPath(IA,table(BP,JA2),table())
+
+    }
+}
+
+handleDelayDo()
+
+event tick() {
+    handlePhysicsObjects()
+}

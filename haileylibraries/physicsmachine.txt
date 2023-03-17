@@ -28,8 +28,8 @@ if (first()|duped()){
             delayDo("moveToward_delay",Input,MACHINE_TICKMILLIS)
         } else { # End
             Input["physics_object",table]:setPos(Input["end",vector])
-            if (Input["callback_function",string]) {
-                delayDo(Input["callback_function",string],Input["callback_input",table],MACHINE_TICKMILLIS)
+            if (Input["callback",table] != table()) {
+                delayDo(Input["callback",table])
             }
             return
         }
@@ -42,7 +42,7 @@ if (first()|duped()){
 
         If Speed is set to zero or less, max speed is unlimited
     ]#
-    function table:moveToward(Target:vector,Speed:number,Accel:number, Callback:string, CallbackInput:table) {
+    function table:moveToward(Target:vector,Speed:number,Accel:number, Callback:table) {
 
 
         if(Speed <= 0){
@@ -68,13 +68,16 @@ if (first()|duped()){
 
         Input = table(
             "start" = This["position_local",vector], "end" = Target, "physics_object" = This,
-            "callback_function" = Callback, "callback_input" = CallbackInput,
+            "callback" = Callback,
             "a/2" = Accel/2, "s" = Speed,
             "t1"=T1, "t2" = T1+T2, "t3" = T1*2+T2, "t0" = curtime(),
             "d1" = DT1, "d2" = DT2, "dt" = DT)
         moveToward_delay(Input)
     }
 
+    function table:moveToward(Target:vector,Speed:number,Accel:number, Callback:string, CallbackInput:table) {
+        This:moveToward(Target,Speed,Accel,delayDoTable(Callback, CallbackInput, 10))
+    }
     ################################################################################################
 
     function moveAlongPath_delay(Input:table){
@@ -94,7 +97,15 @@ if (first()|duped()){
     function table:moveAlongPath(Path:array, Speed:number, Accel:number, Callback:string, CallbackInput:table){
         moveAlongPath_delay(table(
             "physics_object" = This, "path" = Path, "s" = Speed, "a" = Accel,
-            "callback_function" = Callback, "callback_input" = CallbackInput,
+            "callback_function" = delayDoTable(Callback,CallbackInput, 10),
+            "i" = 1
+        ))
+    }
+
+    function table:moveAlongPath(Path:array, Speed:number, Accel:number, Callback:table){
+        moveAlongPath_delay(table(
+            "physics_object" = This, "path" = Path, "s" = Speed, "a" = Accel,
+            "callback" = Callback,
             "i" = 1
         ))
     }

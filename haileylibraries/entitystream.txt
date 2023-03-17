@@ -3,14 +3,14 @@
 if(first()|duped()|dupefinished())
 {
     function table newEntityStream(Entities:array){
-        return table("entities" = Entities:clone(), "start" = 0, "consumed" = table())
+        return table("entities" = Entities:clone(), "start" = 1, "consumed" = table())
     }
 
     function entity table:consumeEntity(ClassPattern:string, ModelPattern:string){
         Entities = This["entities",array]
         Consumed = This["consumed",table]
         Start = This["start",number]
-        End =  Entities:count()-1
+        End =  Entities:count()
 
         # Support * wildcard like find functions
         ModelRE = ModelPattern:replace("*",".*"):lower()
